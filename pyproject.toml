@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cryptolens"
+version = "0.1.0"
+description = "Crypto/hash constant, variant and pattern scanner (core + IDA Pro plugin)"
+readme = "README.md"
+requires-python = ">=3.8"
+license = { text = "MIT" }
+dependencies = []                      # core uses only the standard library
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[project.scripts]
+cryptolens = "cryptolens.cli:main"
+
+[tool.setuptools]
+packages = ["cryptolens"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
