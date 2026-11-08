@@ -1,0 +1,25 @@
+{
+  "IDAMetadataDescriptorVersion": 1,
+  "plugin": {
+    "name": "CryptoLens",
+    "entryPoint": "cryptolens_plugin.py",
+    "version": "0.2.0",
+    "idaVersions": ">=9.0",
+    "description": "Crypto/hash constant, variant and algorithm scanner: identify the algorithm in a function, resolve API-hash loops, recover keys from memory, and explain magic constants (incl. golden-ratio variants).",
+    "license": "MIT",
+    "categories": [
+      "malware-analysis",
+      "decompilation"
+    ],
+    "keywords": [
+      "crypto",
+      "hashing",
+      "constants",
+      "aes",
+      "chacha",
+      "rc4",
+      "api-hashing",
+      "reverse-engineering"
+    ]
+  }
+}
