@@ -20,6 +20,7 @@ ACT_APIHASH_ALL = "cryptolens:apihash_all"
 ACT_MEM = "cryptolens:memscan"
 ACT_FP = "cryptolens:fingerprint"
 ACT_LOOKUP = "cryptolens:lookup"
+ACT_LOOKUP_CUR = "cryptolens:lookup_cur"
 ACT_ANNOTATE = "cryptolens:annotate"
 ACT_EXPORT = "cryptolens:export"
 
@@ -171,6 +172,8 @@ if HAVE_IDA:
          "", "Also report medium-confidence variant constants"),
         (ACT_LOOKUP, "Lookup a number...", lookup.prompt_and_query,
          "Ctrl-Shift-L", "Explain a value / bytes / string"),
+        (ACT_LOOKUP_CUR, "Lookup value under cursor", lookup.lookup_current,
+         "", "Explain the constant highlighted or at the cursor (no typing)"),
         (ACT_ANNOTATE, "Annotate findings in IDB", _do_annotate,
          "", "Add comments and colors for the last scan"),
         (ACT_EXPORT, "Export findings (JSON/HTML)...", _do_export,
@@ -182,6 +185,7 @@ if HAVE_IDA:
     _POPUP_WIDGETS = (
         getattr(ida_kernwin, "BWN_DISASM", 1),
         getattr(ida_kernwin, "BWN_PSEUDOCODE", 51),
+        getattr(ida_kernwin, "BWN_HEXVIEW", 2),
     )
 
     class _PopupHook(ida_kernwin.UI_Hooks):
@@ -189,6 +193,8 @@ if HAVE_IDA:
             try:
                 wtype = ida_kernwin.get_widget_type(widget)
                 if wtype in _POPUP_WIDGETS:
+                    ida_kernwin.attach_action_to_popup(
+                        widget, popup, ACT_LOOKUP_CUR, "CryptoLens/")
                     ida_kernwin.attach_action_to_popup(
                         widget, popup, ACT_FUNC, "CryptoLens/")
                     ida_kernwin.attach_action_to_popup(

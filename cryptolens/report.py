@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import List
 
-from . import apihash, engine, parse, util
+from . import apihash, engine, interpret, parse, util
 try:
     from . import tables, fastscan
 except Exception:  # pragma: no cover
@@ -68,7 +68,12 @@ def lookup_text(user_input: str) -> str:
         return f"! {exc}"
 
     if p.kind == "int":
-        return explain_multi_text(p.value)
+        blocks = [explain_multi_text(p.value)]
+        general = interpret.describe_value(p.value)
+        if general:
+            blocks.append("General interpretations:\n"
+                          + "\n".join("  " + g for g in general))
+        return "\n\n".join(blocks)
 
     # Byte blob / string input.
     data = p.data or b""

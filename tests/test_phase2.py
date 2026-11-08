@@ -61,3 +61,12 @@ def test_entropy_regions():
     blob = b"\x00" * 2048 + os.urandom(8192) + b"A" * 2048
     regs = entropy.high_entropy_regions(blob)
     assert regs and regs[0].avg_entropy > 7.3
+
+
+def test_interpret_general_values():
+    from cryptolens import interpret
+    assert any("Unix time (seconds)" in s for s in interpret.describe_value(1700000000))
+    assert any("float32" in s for s in interpret.describe_value(0x40490FDB))
+    assert any("x / 3" in s for s in interpret.describe_value(0xAAAAAAAB))
+    # Always returns at least something for an arbitrary value.
+    assert interpret.describe_value(0x003FBDA4852ED643)

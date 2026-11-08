@@ -65,6 +65,15 @@ matches, ASCII/endian interpretations and embedded tables. Byte input is scanned
 word-by-word, so pasting `expand 32-byte k` identifies all four ChaCha sigma
 words.
 
+When a value is not a known crypto constant, the panel still reports **general
+interpretations** so it is useful on obfuscated binaries: signed/unsigned
+decimal, bytes + ASCII, IEEE-754 float/double, Unix / millisecond / Windows
+FILETIME timestamps, compiler division-magic reciprocals, prime/parity, and a
+masked-pointer hint. For code where IDA could not form functions, use **Lookup
+value under cursor** (right-click, or the CryptoLens menu): it reads the
+highlighted token, the instruction immediate, or the data item at the cursor and
+explains it with no typing.
+
 ## Install
 
 The analysis core is pure standard library; no third-party packages are
@@ -191,6 +200,9 @@ The **CryptoLens** menu provides:
 - **Scan binary (include variants)** - also reports medium-confidence
   "variant of X" immediates.
 - **Lookup a number...** - the panel described above.
+- **Lookup value under cursor** - explain the highlighted constant, or the
+  instruction immediate / data item at the cursor, with no typing (also on the
+  right-click menu in the disassembly, pseudocode and hex views).
 - **Annotate findings in IDB** - adds `CryptoLens:` comments and background
   colors at each finding.
 - **Export findings (JSON/HTML)** - saves the last scan.
