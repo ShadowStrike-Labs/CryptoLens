@@ -5,9 +5,9 @@ from typing import List
 
 from . import apihash, engine, interpret, parse, util
 try:
-    from . import tables, fastscan
+    from . import families, familyscan, tables, fastscan
 except Exception:  # pragma: no cover
-    tables = fastscan = None
+    families = familyscan = tables = fastscan = None
 
 _BUCKET_TAG = {"high": "[high]  ", "medium": "[medium]", "low": "[low]   "}
 
@@ -86,7 +86,10 @@ def lookup_text(user_input: str) -> str:
         out.append(explain_multi_text(val))
     if tables is not None:
         for h in tables.detect_tables(data):
-            out.append(f"  [high]   table: {h.name}  ({h.note})")
+            out.append(f"  [{('high' if h.confidence >= 0.85 else 'medium')}] "
+                       f"table: {h.name}  ({h.note})")
+        for hit in familyscan.scan_buffer(data):
+            out.append(f"  [{hit.bucket}] family: {hit.name}  ({hit.evidence})")
         for hit in fastscan.scan_buffer(data, aligned=False):
             out.append(f"  +0x{hit.offset:X} [{hit.bucket}] 0x{hit.value:X} "
                        f"({hit.width}b) {hit.summary}")

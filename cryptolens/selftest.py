@@ -6,7 +6,7 @@ classifies the headline scenarios as expected.  Run with:
 """
 from __future__ import annotations
 
-from . import engine, hpmath as hp, util
+from . import engine, families, familyscan, hpmath as hp, signatures, util
 
 _PRIMES8 = (2, 3, 5, 7, 11, 13, 17, 19)
 _SHA256_H = (0x6A09E667, 0xBB67AE85, 0x3C6EF372, 0xA54FF53A,
@@ -51,8 +51,10 @@ def check_engine(failures: list) -> None:
 
     # The flagship: a 1-bit-off golden-ratio value is a variant, not exact.
     top = _top(0x9E3779F9, 32)
-    _check(top is not None and top.kind == "variant" and "TEA" in top.summary,
-           "explain 0x9E3779F9 -> variant of TEA", failures)
+    _check(top is not None and top.kind == "variant"
+           and "golden-ratio" in top.summary
+           and any("TEA" in use for use in top.algorithms),
+           "explain 0x9E3779F9 -> golden-ratio variant with TEA candidate", failures)
 
     top = _top(0xEDB88320, 32)
     _check(top is not None and "CRC-32" in top.summary,
@@ -63,14 +65,31 @@ def check_engine(failures: list) -> None:
            "explain 0x6A09E667 -> SHA-256", failures)
 
 
+def check_catalog(failures: list) -> None:
+    _check(len(families.SHA256_K) == 64, "complete SHA-256 K table", failures)
+    _check(len(families.SHA512_K) == 80, "complete SHA-512 K table", failures)
+    _check(families.SHA512_K[-1] == 0x6C44198C4A475817,
+           "SHA-512 final round constant", failures)
+    _check(families.XXH64_PRIMES[3] == 0x85EBCA77C2B2AE63,
+           "xxHash64 PRIME64_4", failures)
+    _check(not signatures.lookup(0x60EA27EEADC0B5D6, 64),
+           "removed incorrect xxHash64 PRIME64_5", failures)
+    blob = b"x" * 7 + b"".join(v.to_bytes(8, "little")
+                                 for v in families.KECCAK_RC)
+    hits = familyscan.scan_buffer(blob)
+    _check(any(h.family_id == "keccak_rc" and h.mode == "sequence" for h in hits),
+           "Keccak ordered family scan", failures)
+
+
 def run() -> bool:
     failures: list = []
     check_constants(failures)
     check_engine(failures)
+    check_catalog(failures)
     if failures:
         print("SELFTEST FAILED:")
         for f in failures:
             print("  -", f)
         return False
-    print("SELFTEST PASSED (constants + engine)")
+    print("SELFTEST PASSED (constants + families + engine)")
     return True

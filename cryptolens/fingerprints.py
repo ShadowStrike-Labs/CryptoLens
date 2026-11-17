@@ -2,13 +2,15 @@
 
 Two kinds of signal:
 
-* string fingerprints - substrings that betray a crypto library (OpenSSL,
-  mbedTLS, Crypto++, libsodium, Windows CNG/BCrypt) or embedded key material
-  (PEM/OpenSSH markers, certificates).  Searched in both ASCII and UTF-16LE.
-* CryptoAPI CALG_* ids - the small integer algorithm identifiers passed to the
-  legacy wincrypt API (CryptCreateHash/CryptImportKey ...).
+* string fingerprints - crypto libraries and embedded key material, searched in
+  both ASCII and UTF-16LE;
+* exact DER OBJECT IDENTIFIER TLVs - RSA, EC curves, Ed/X25519, SHA and AES
+  modes, which identify serialized keys/certificates with very low ambiguity;
+* CryptoAPI CALG_* ids - small integer algorithm identifiers passed to legacy
+  Wincrypt APIs.
 
-``scan_bytes`` returns string hits; ``calg_name`` maps an integer id.
+``scan_bytes`` returns both text and binary fingerprint hits; ``calg_name`` maps
+an integer id.
 """
 from __future__ import annotations
 
@@ -48,6 +50,27 @@ STRING_FINGERPRINTS: List[Tuple[str, str, str]] = [
     ("-----BEGIN OPENSSH PRIVATE KEY-----", "ssh", "OpenSSH private key"),
     ("ssh-rsa ", "ssh", "OpenSSH public key"),
     ("ssh-ed25519 ", "ssh", "OpenSSH ed25519 key"),
+]
+
+# Exact DER-encoded ASN.1 OBJECT IDENTIFIER TLVs. Full TLVs are distinctive
+# enough for high-confidence algorithm/key-format attribution.
+BYTE_FINGERPRINTS = [
+    (bytes.fromhex("06092A864886F70D010101"), "rsaEncryption OID", "oid", "PKCS#1 RSA"),
+    (bytes.fromhex("06052B0E03021A"), "id-sha1 OID", "oid", "SHA-1"),
+    (bytes.fromhex("0609608648016503040201"), "id-sha256 OID", "oid", "SHA-256"),
+    (bytes.fromhex("0609608648016503040202"), "id-sha384 OID", "oid", "SHA-384"),
+    (bytes.fromhex("0609608648016503040203"), "id-sha512 OID", "oid", "SHA-512"),
+    (bytes.fromhex("06072A8648CE3D0201"), "id-ecPublicKey OID", "oid", "EC public key"),
+    (bytes.fromhex("06082A8648CE3D030107"), "prime256v1 OID", "oid", "NIST P-256"),
+    (bytes.fromhex("06052B8104000A"), "secp256k1 OID", "oid", "secp256k1"),
+    (bytes.fromhex("06032B6570"), "Ed25519 OID", "oid", "Ed25519"),
+    (bytes.fromhex("06032B656E"), "X25519 OID", "oid", "X25519"),
+    (bytes.fromhex("0609608648016503040102"), "id-aes128-CBC OID", "oid", "AES-128-CBC"),
+    (bytes.fromhex("0609608648016503040116"), "id-aes192-CBC OID", "oid", "AES-192-CBC"),
+    (bytes.fromhex("060960864801650304012A"), "id-aes256-CBC OID", "oid", "AES-256-CBC"),
+    (bytes.fromhex("0609608648016503040106"), "id-aes128-GCM OID", "oid", "AES-128-GCM"),
+    (bytes.fromhex("060960864801650304011A"), "id-aes192-GCM OID", "oid", "AES-192-GCM"),
+    (bytes.fromhex("060960864801650304012E"), "id-aes256-GCM OID", "oid", "AES-256-GCM"),
 ]
 
 # Legacy CryptoAPI algorithm identifiers (wincrypt.h ALG_ID values).
@@ -90,4 +113,12 @@ def scan_bytes(buf: bytes, base: int = 0) -> List[StringHit]:
                     break
                 out.append(StringHit(base + idx, needle, category, note, enc))
                 start = idx + 1
+    for pat, label, category, note in BYTE_FINGERPRINTS:
+        start = 0
+        while True:
+            idx = buf.find(pat, start)
+            if idx < 0:
+                break
+            out.append(StringHit(base + idx, label, category, note, "DER/binary"))
+            start = idx + 1
     return out

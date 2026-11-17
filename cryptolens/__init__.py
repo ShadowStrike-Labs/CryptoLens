@@ -6,13 +6,16 @@ plugin entry point ``cryptolens_plugin.py``.
 """
 from __future__ import annotations
 
-from . import apihash, constants, engine, hpmath, parse, report, signatures, util
+from . import (apihash, constants, engine, entropy, families, familyscan,
+               fastscan, fingerprints, hpmath, interpret, memfind, parse, report,
+               signatures, structure, tables, util)
 from .engine import Explanation, explain, explain_multi
 
-__version__ = "0.1.0"
+__version__ = "0.3.0"
 
 __all__ = [
-    "apihash", "constants", "engine", "hpmath", "parse", "report",
-    "signatures", "util", "Explanation", "explain", "explain_multi",
-    "__version__",
+    "apihash", "constants", "engine", "entropy", "families", "familyscan",
+    "fastscan", "fingerprints", "hpmath", "interpret", "memfind", "parse",
+    "report", "signatures", "structure", "tables", "util", "Explanation",
+    "explain", "explain_multi", "__version__",
 ]

@@ -1,16 +1,15 @@
 """Registry of base mathematical constants and the anchor table.
 
 An *anchor* is a concrete integer value (at a given bit width) together with the
-recipe that produced it.  Canonical anchors (``cost == 0``) are generated
-directly from :mod:`cryptolens.hpmath` formulas.  A handful of cheap *forward
-derivations* (round-to-odd, round-to-nearest-prime, multiply-by-small-k) are
-added on top, because real code frequently stores a constant in one of those
-lightly-processed forms (e.g. TEA's decryption sum is ``delta * 32``).
+recipe that produced it.  Canonical anchors (``cost == 0``) are generated directly from
+:mod:`cryptolens.hpmath` formulas. Only a small allowlist of relationships
+actually documented in algorithms is added (TEA delta*32, RC5's odd e value,
+xxHash's nearby prime, and golden-ratio negation). Earlier cross-product
+rounding/multiplication created unsupported numerology and was removed.
 
-The engine matches a queried number against this table, applying its own
-query-side transforms (negate / not / byteswap / bitreverse / rotate / halves).
-Fuzzy "variant of X" matching only ever considers canonical anchors, so you
-never see nonsense like "variant of (golden ratio x 3)".
+The engine applies only semantically justified query-side transforms. Fuzzy
+single-value resemblance is conservative; automatic algorithm attribution is
+handled by corroborated families in :mod:`cryptolens.familyscan`.
 """
 from __future__ import annotations
 
@@ -32,16 +31,15 @@ class Anchor:
     canonical: bool = True
 
 
-# First 64 primes (SHA-2 uses these for sqrt/cbrt fractional parts).
-_PRIMES64 = [
+# First 80 primes (SHA-256 uses 64; SHA-512 uses all 80).
+_PRIMES80 = [
     2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59, 61, 67,
     71, 73, 79, 83, 89, 97, 101, 103, 107, 109, 113, 127, 131, 137, 139, 149,
     151, 157, 163, 167, 173, 179, 181, 191, 193, 197, 199, 211, 223, 227, 229,
     233, 239, 241, 251, 257, 263, 269, 271, 277, 281, 283, 293, 307, 311,
+    313, 317, 331, 337, 347, 349, 353, 359, 367, 373, 379, 383, 389, 397,
+    401, 409,
 ]
-
-# Small k multipliers worth pre-deriving (TEA decryption sum is delta*32, etc.).
-_MULTIPLIERS = (2, 3, 4, 5, 8, 16, 32)
 
 
 def _canon_generators() -> List[Tuple[int, int, str, str]]:
@@ -54,16 +52,19 @@ def _canon_generators() -> List[Tuple[int, int, str, str]]:
         out.append((hp.named_frac_scaled("pi", w), w, "pi",
                     f"frac(pi) * 2^{w}"))
         out.append((hp.named_frac_scaled("e", w), w, "e",
-                    f"frac(e) * 2^{w}  (also (e-2)*2^{w}, RC5 P)"))
+                    f"floor(frac(e) * 2^{w})  (precursor to odd RC5 P)"))
         out.append((hp.named_frac_scaled("ln2", w), w, "ln2",
                     f"frac(ln 2) * 2^{w}"))
+        # Put standardized SHA anchors before generic roots so user-facing
+        # recipes prefer the precise attribution for duplicate values.
+        for p in _PRIMES80[:8]:
+            out.append((hp.frac_root_scaled(p, 2, w), w, f"sqrt_p{p}",
+                        f"frac(sqrt {p}) * 2^{w}  (SHA-2 initial hash)"))
         for k in (2, 3, 5, 6, 7, 10, 11, 13):
             out.append((hp.frac_root_scaled(k, 2, w), w, f"sqrt{k}",
                         f"frac(sqrt {k}) * 2^{w}"))
-        for p in _PRIMES64[:8]:
-            out.append((hp.frac_root_scaled(p, 2, w), w, f"sqrt_p{p}",
-                        f"frac(sqrt {p}) * 2^{w}  (SHA-2 initial hash)"))
-        for p in _PRIMES64:
+        k_count = 64 if w == 32 else 80
+        for p in _PRIMES80[:k_count]:
             out.append((hp.frac_root_scaled(p, 3, w), w, f"cbrt_p{p}",
                         f"frac(cbrt {p}) * 2^{w}  (SHA-2 round constant)"))
 
@@ -98,21 +99,23 @@ def _build() -> Tuple[Dict[Tuple[int, int], List[Anchor]], Dict[int, List[int]]]
         add(value, width, base, recipe, 0, True)
         canon_values.setdefault(width, set()).add(value & util.mask(width))
 
-    # Forward derivations off each canonical anchor.
-    for (width, value), anchors in list(table.items()):
-        for a in [x for x in anchors if x.canonical]:
-            odd = util.nearest_odd(a.value)
-            if odd != a.value and util.fits(odd, width):
-                add(odd, width, a.base, a.recipe + ", rounded up to odd", 1, False)
-            pr, dist = util.nearest_prime(a.value, max_delta=256)
-            if pr is not None and pr != a.value and util.fits(pr, width):
-                sign = "+" if dist > 0 else "-"
-                add(pr, width, a.base,
-                    a.recipe + f", rounded to nearest prime ({sign}{abs(dist)})",
-                    2, False)
-            for k in _MULTIPLIERS:
-                mv = (a.value * k) & util.mask(width)
-                add(mv, width, a.base, a.recipe + f", x {k} (mod 2^{width})", 2, False)
+    # Only relationships documented in real algorithms are promoted. Earlier
+    # versions rounded/multiplied *every* mathematical anchor, creating more
+    # than two thousand unsupported numerology signatures.
+    g32 = hp.inv_phi_scaled(32)
+    g64 = hp.inv_phi_scaled(64)
+    add(util.neg(g32, 32), 32, "golden_ratio",
+        "-floor(2^32 / phi) mod 2^32 (Linux/Java hash increment)", 1, False)
+    add(util.neg(g64, 64), 64, "golden_ratio",
+        "-floor(2^64 / phi) mod 2^64", 1, False)
+    add((g32 * 32) & util.mask(32), 32, "golden_ratio",
+        "floor(2^32 / phi) x 32 mod 2^32 (TEA decrypt start sum)", 1, False)
+    add(0x9E3779B1, 32, "golden_ratio",
+        "prime immediately below floor(2^32 / phi) (xxHash32 PRIME32_1)", 1, False)
+    add(0xB7E15163, 32, "e",
+        "Odd(floor((e - 2) * 2^32)) (RC5/RC6 P32)", 1, False)
+    add(0xB7E151628AED2A6B, 64, "e",
+        "Odd(floor((e - 2) * 2^64)) (RC5/RC6 P64)", 1, False)
 
     by_width = {w: sorted(vals) for w, vals in canon_values.items()}
     return table, by_width

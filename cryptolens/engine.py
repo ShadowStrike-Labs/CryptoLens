@@ -2,16 +2,17 @@
 
 Pipeline for ``explain(value, width)``:
 
-1.  Apply a catalogue of cheap, invertible *query-side* transforms
-    (identity, negate, NOT, byte-swap, bit-reverse, rotate, 64->32 halves).
-2.  For each transformed value, look it up in the generative anchor table
-    (:mod:`cryptolens.constants`) and the named-algorithm database
-    (:mod:`cryptolens.signatures`).  A hit after a transform is still a
-    confident identification (e.g. the reflected CRC-32 polynomial).
-3.  If nothing matches exactly, run a *fuzzy* pass against canonical anchors
-    only, flagging near misses as "variant of <X>" with lower confidence.
-    This is what catches packer/author constants that are golden-ratio-like
-    without being the textbook value.
+1.  Apply a small catalogue of semantically justified transforms (identity,
+    byte order, documented golden-ratio negation, CRC bit reflection).
+2.  Look up generated mathematical anchors and curated algorithm signatures.
+    Shared constants are reported as shared rather than attributed to whichever
+    algorithm happened to be listed first.
+3.  If nothing matches, run a conservative resemblance pass. Golden-ratio
+    near-neighbours retain the requested "variant" feature; generic one-bit
+    neighbours are low-confidence manual-lookup hints only.
+
+Automatic binary scans use :mod:`cryptolens.familyscan` to require related
+constants to co-occur before making algorithm-level claims.
 
 The engine has no IDA dependency and is fully unit-testable.
 """
@@ -55,7 +56,7 @@ def base_pretty(base: str) -> str:
     simple = {
         "golden_ratio": "golden-ratio reciprocal (1/phi)",
         "pi": "pi fractional constant",
-        "e": "e fractional constant (RC5 P family)",
+        "e": "fractional-e constant (RC5 precursor)",
         "ln2": "ln(2) fractional constant",
         "sin": "MD5 sine-table constant",
     }
@@ -87,13 +88,10 @@ def _candidates(value: int, width: int) -> List[Tuple[str, int, int]]:
         out.append((text, cost, tv))
 
     push("", 0, value)                                   # identity
-    push("negated (two's complement)", 2, util.neg(value, width))
-    push("bitwise NOT", 2, util.bnot(value, width))
+    push("negated (documented relation)", 2, util.neg(value, width))
     if width % 8 == 0:
         push("byte-swapped (endianness)", 2, util.bswap(value, width))
-    push("bit-reversed", 3, util.bitrev(value, width))
-    for r in range(1, width):
-        push(f"rotated left by {r}", 3, util.ror(value, r, width))
+    push("bit-reversed (CRC reflection candidate)", 3, util.bitrev(value, width))
     return out
 
 
@@ -116,11 +114,22 @@ def _assemble(value: int, width: int) -> List[Explanation]:
         anchors = constants.lookup(tv, width)
         sigs = signatures.lookup(tv, width)
         is_identity = (ttext == "")
-        # Under a non-identity transform, only trust canonical anchors or named
-        # signatures -- stacking a transform on top of a derived anchor
-        # (rounded/multiplied) produces coincidental noise.
+        # Transforms are family-specific, not universal numerology. Byte order
+        # applies generally; bit reversal is meaningful for reflected CRCs;
+        # negation is retained only for the documented golden-ratio pair.
         if not is_identity:
             anchors = [a for a in anchors if a.canonical]
+            if ttext.startswith("bit-reversed"):
+                sigs = [s for s in sigs if "CRC" in s.algorithm]
+                anchors = []
+            elif ttext.startswith("negated"):
+                golden_values = {
+                    0x9E3779B9, 0x61C88647,
+                    0x9E3779B97F4A7C15, 0x61C8864680B583EB,
+                }
+                if tv not in golden_values:
+                    sigs = []
+                    anchors = []
         if not anchors and not sigs:
             continue
 
@@ -148,7 +157,22 @@ def _assemble(value: int, width: int) -> List[Explanation]:
                 algos.append(label)
 
         if sigs:
-            summary = f"{sigs[0].algorithm}: {sigs[0].role}" if sigs[0].role else sigs[0].algorithm
+            raw_names = list(dict.fromkeys(s.algorithm for s in sigs))
+            names = []
+            for candidate in sorted(raw_names, key=len):
+                low = candidate.lower()
+                if any(low in existing.lower() or existing.lower() in low
+                       for existing in names):
+                    continue
+                names.append(candidate)
+            if len(names) == 1:
+                summary = (f"{names[0]}: {sigs[0].role}"
+                           if sigs[0].role else names[0])
+            else:
+                shown = "; ".join(names[:4])
+                if len(names) > 4:
+                    shown += f"; +{len(names) - 4} more"
+                summary = f"shared constant used by {shown}"
         else:
             summary = base_pretty(base)
         if not is_identity:
@@ -178,7 +202,7 @@ def _half_projections(value: int) -> List[Explanation]:
         base = anchors[0].base if anchors else "named"
         name = sigs[0].algorithm if sigs else base_pretty(base)
         out.append(Explanation(
-            value=value, width=64, kind="transform", confidence=0.6,
+            value=value, width=64, kind="transform", confidence=0.42,
             summary=f"{label} match: {name}",
             recipe=(anchors[0].recipe if anchors else ""),
             transform=label, algorithms=algos, base=base,
@@ -190,40 +214,51 @@ def _half_projections(value: int) -> List[Explanation]:
 # Fuzzy variant search (canonical anchors only)
 # --------------------------------------------------------------------------
 def _fuzzy(value: int, width: int, max_results: int = 4) -> List[Explanation]:
+    """Conservative single-value resemblance hints.
+
+    Automatic family scans use co-occurrence instead. Here we keep the user's
+    requested golden-ratio variant feature, while generic one-bit neighbours
+    are explicitly low-confidence lookup hints rather than algorithm claims.
+    """
     if value < 0x100:
         return []
     cands: List[Explanation] = []
-    hi_shift = width // 2
     for a_val in constants.canonical_values(width):
         if a_val == value:
             continue
+        anchors = constants.lookup(a_val, width)
+        canonical = [a for a in anchors if a.canonical]
+        if not canonical:
+            continue
+        base = canonical[0].base
         d = util.hamming(value, a_val)
         delta = value - a_val
         conf = 0.0
         detail = ""
-        if 1 <= d <= 3:
-            conf = 0.80 - 0.13 * (d - 1)
-            detail = f"differs in {d} bit(s)"
-        elif 0 < abs(delta) <= 0x40:
-            conf = 0.72 - 0.004 * abs(delta)
-            detail = f"numeric offset {delta:+#x}"
-        elif (value >> hi_shift) == (a_val >> hi_shift):
-            low_pop = util.hamming(value & util.mask(hi_shift), 0)
-            if low_pop <= 5 or util.is_prime(value):
-                conf = 0.5
-                detail = f"shares top {hi_shift} bits (sparse/prime low half)"
-        if conf < 0.4:
+        if base == "golden_ratio":
+            if d == 1:
+                conf = 0.72
+                detail = "differs in 1 bit"
+            elif d == 2:
+                conf = 0.52
+                detail = "differs in 2 bits"
+            elif 0 < abs(delta) <= 8:
+                conf = 0.58
+                detail = f"numeric offset {delta:+#x}"
+        elif d == 1:
+            conf = 0.42
+            detail = "one-bit numerical neighbour; uncorroborated"
+        if conf == 0.0:
             continue
 
-        anchors = constants.lookup(a_val, width)
         sigs = signatures.lookup(a_val, width)
-        base = anchors[0].base if anchors else "named"
         algos = [f"{s.algorithm} - {s.role}" if s.role else s.algorithm for s in sigs]
-        pretty = sigs[0].algorithm if sigs else base_pretty(base)
+        pretty = base_pretty(base)
+        prefix = "variant of" if base == "golden_ratio" else "possible variant of"
         cands.append(Explanation(
-            value=value, width=width, kind="variant", confidence=round(conf, 3),
-            summary=f"variant of {pretty}",
-            recipe=(anchors[0].recipe if anchors else ""),
+            value=value, width=width, kind="variant", confidence=conf,
+            summary=f"{prefix} {pretty}",
+            recipe=canonical[0].recipe,
             transform="", detail=f"{detail} vs 0x{a_val:0{width // 4}X}",
             algorithms=algos, base=base,
         ))

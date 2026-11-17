@@ -7,8 +7,11 @@ in real code.  The engine merges both so a report can read, e.g.:
     0x9E3779B9  golden-ratio reciprocal floor(2^32/phi)
                 -> TEA/XTEA/XXTEA delta, RC5/RC6 magic, boost::hash_combine
 
-Values here are matched through the same query-side transforms the engine uses,
-so a byte-swapped or negated form of a known constant is still recognised.
+Individual values are available to manual lookup. Automatic scans attach an
+isolated-evidence strength and use :mod:`cryptolens.families` for co-occurrence,
+so a shared value such as 0x9E3779B9 is not automatically declared to be TEA.
+Only semantically valid transforms (principally byte order and CRC reflection)
+are considered by the engine.
 """
 from __future__ import annotations
 
@@ -16,7 +19,7 @@ from dataclasses import dataclass
 from functools import lru_cache
 from typing import Dict, List, Tuple
 
-from . import util
+from . import families, util
 
 
 @dataclass(frozen=True)
@@ -26,6 +29,8 @@ class Signature:
     algorithm: str
     role: str
     note: str = ""
+    family: str = ""
+    strength: float = 0.72  # isolated automatic-scan strength; lookup stays exact
 
 
 # (value, width, algorithm, role, note)
@@ -50,8 +55,8 @@ _RAW: List[Tuple[int, int, str, str, str]] = [
     (0x9E3779B185EBCA87, 64, "xxHash64", "PRIME64_1", ""),
     (0xC2B2AE3D27D4EB4F, 64, "xxHash64", "PRIME64_2", ""),
     (0x165667B19E3779F9, 64, "xxHash64", "PRIME64_3", ""),
-    (0x27D4EB2F165667C5, 64, "xxHash64", "PRIME64_4", ""),
-    (0x60EA27EEADC0B5D6, 64, "xxHash64", "PRIME64_5", ""),
+    (0x85EBCA77C2B2AE63, 64, "xxHash64", "PRIME64_4", ""),
+    (0x27D4EB2F165667C5, 64, "xxHash64", "PRIME64_5", ""),
 
     # ---- FNV ----------------------------------------------------------------
     (0x01000193, 32, "FNV-1 / FNV-1a", "32-bit FNV prime", ""),
@@ -67,8 +72,8 @@ _RAW: List[Tuple[int, int, str, str, str]] = [
     (0xC3D2E1F0, 32, "SHA-1", "init state E / H4", ""),
 
     # ---- SHA-256 IV (also derivable as frac(sqrt p)) -----------------------
-    (0x6A09E667, 32, "SHA-256 (and SHA-512 low)", "IV H0 = frac(sqrt 2)", ""),
-    (0xBB67AE85, 32, "SHA-256", "IV H1 = frac(sqrt 3)", ""),
+    (0x6A09E667, 32, "SHA-256 / BLAKE2s / BLAKE3", "shared IV word 0", ""),
+    (0xBB67AE85, 32, "SHA-256 / BLAKE2s / BLAKE3", "shared IV word 1", ""),
 
     # ---- CRC polynomials ----------------------------------------------------
     (0x04C11DB7, 32, "CRC-32 (IEEE, zlib/PNG/Ethernet)", "polynomial (normal)", ""),
@@ -80,6 +85,17 @@ _RAW: List[Tuple[int, int, str, str, str]] = [
     (0x8005, 16, "CRC-16-IBM/ANSI/MODBUS", "polynomial (normal)", ""),
     (0xA001, 16, "CRC-16-IBM/MODBUS", "polynomial (reflected)", ""),
     (0x42F0E1EBA9EA3693, 64, "CRC-64-ECMA/XZ", "polynomial (normal)", ""),
+    (0xC96C5795D7870F42, 64, "CRC-64-ECMA/XZ", "polynomial (reflected)", ""),
+    (0x741B8CD7, 32, "CRC-32K (Koopman)", "polynomial (normal)", ""),
+    (0xEB31D82E, 32, "CRC-32K (Koopman)", "polynomial (reflected)", ""),
+    (0x814141AB, 32, "CRC-32Q", "polynomial (normal)", ""),
+    (0xD5828281, 32, "CRC-32Q", "polynomial (reflected)", ""),
+
+    # ---- Universal / keyed hash and finite-field constants -----------------
+    (0xE100000000000000, 64, "GHASH / AES-GCM", "GF(2^128) reduction constant", ""),
+    (0x000000000001DB41, 64, "Curve25519", "Montgomery ladder constant 121665", ""),
+    (0x5BD1E995, 32, "MurmurHash2", "32-bit multiplier", ""),
+    (0xC6A4A7935BD1E995, 64, "MurmurHash64A", "64-bit multiplier", ""),
 
     # ---- ChaCha / Salsa20 "expand 32-byte k" sigma words -------------------
     (0x61707865, 32, "ChaCha20 / Salsa20", 'sigma word "expa"', "ASCII 'expa' (LE)"),
@@ -97,7 +113,7 @@ _RAW: List[Tuple[int, int, str, str, str]] = [
 
     # ---- SM4 (Chinese national standard block cipher) ----------------------
     (0xA3B1BAC6, 32, "SM4", "system parameter FK0", ""),
-    (0x00070E15, 32, "SM4", "fixed key CK0", ""),
+    (0x00070E15, 32, "SM4", "key-schedule constant CK0", ""),
 
     # ---- Mersenne Twister (MT19937) ----------------------------------------
     (0x6C078965, 32, "MT19937 (Mersenne Twister)", "init multiplier 1812433253", ""),
@@ -122,17 +138,58 @@ _RAW: List[Tuple[int, int, str, str, str]] = [
 ]
 
 
+def _legacy_strength(value: int, algorithm: str, role: str) -> float:
+    """How strongly one isolated value supports automatic attribution.
+
+    This is separate from numeric-match certainty. Shared IVs/mixing constants
+    remain exact in manual lookup, but are intentionally weak scan evidence.
+    """
+    if "CRC" in algorithm and "polynomial" in role:
+        return 0.90
+    if algorithm == "AES":
+        return 0.85
+    if "sum after 32 rounds" in role:
+        return 0.88
+    if value in (0x9E3779B9, 0x9E3779B97F4A7C15):
+        return 0.45
+    return 0.68
+
+
 @lru_cache(maxsize=1)
 def _index() -> Dict[Tuple[int, int], List[Signature]]:
     idx: Dict[Tuple[int, int], List[Signature]] = {}
+    seen = set()
+
+    def add(sig: Signature) -> None:
+        key = (sig.width, sig.value, sig.algorithm, sig.role)
+        if key in seen:
+            return
+        seen.add(key)
+        idx.setdefault((sig.width, sig.value), []).append(sig)
+
     for value, width, algo, role, note in _RAW:
-        sig = Signature(value & util.mask(width), width, algo, role, note)
-        idx.setdefault((width, sig.value), []).append(sig)
+        value &= util.mask(width)
+        memberships = families.memberships(value, width)
+        family = memberships[0][0].family_id if len(memberships) == 1 else ""
+        add(Signature(value, width, algo, role, note, family,
+                      _legacy_strength(value, algo, role)))
+    for value, width, algo, role, note, family, strength in families.signature_rows():
+        add(Signature(value & util.mask(width), width, algo, role, note,
+                      family, strength))
     return idx
 
 
 def lookup(value: int, width: int) -> List[Signature]:
     return _index().get((width, value & util.mask(width)), [])
+
+
+def all_signatures() -> Tuple[Signature, ...]:
+    return tuple(sig for sigs in _index().values() for sig in sigs)
+
+
+def automatic_strength(value: int, width: int) -> float:
+    sigs = lookup(value, width)
+    return max((s.strength for s in sigs), default=0.0)
 
 
 def all_widths() -> Tuple[int, ...]:
