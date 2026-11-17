@@ -1,4 +1,4 @@
-"""Coverage and false-positive regression tests for the v0.3 catalogue."""
+"""Coverage and false-positive regression tests for the v0.3 catalog."""
 import os
 import random
 import sys

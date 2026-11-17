@@ -1,7 +1,7 @@
 """Pytest-discoverable tests for the CryptoLens core.
 
 These assert the same properties as ``python -m cryptolens selftest`` plus a few
-extra engine and scanner behaviours.  No IDA required.
+extra engine and scanner behaviors.  No IDA required.
 """
 import os
 import sys
@@ -40,8 +40,8 @@ def test_engine_transform():
     assert "CRC-32" in top.summary
 
 
-def test_engine_variant_flagship():
-    # One bit off the golden ratio -> flagged as a variant, not exact.
+def test_engine_variant():
+    # A one-bit change produces a variant rather than an exact match.
     top = engine.explain(0x9E3779F9, 32)[0]
     assert top.kind == "variant"
     assert "differs in 1 bit" in top.detail

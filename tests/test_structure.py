@@ -71,7 +71,7 @@ def test_crc_polynomial():
 
 
 def test_plain_function_no_match():
-    # A boring function: a couple of adds and a compare, no crypto structure.
+    # Non-cryptographic arithmetic without a matching structure.
     f = _feat(op_counts=Counter(add=2, sub=1), constants={1, 4, 8})
     assert S.classify(f) == []
     assert S.arx_summary(f) == ""

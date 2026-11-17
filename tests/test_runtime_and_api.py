@@ -1,4 +1,4 @@
-"""Tests for phase 2/3 core modules (no IDA required)."""
+"""Tests for API hashes, memory recovery, fingerprints, and interpretation."""
 import os
 import sys
 from collections import Counter
@@ -68,5 +68,5 @@ def test_interpret_general_values():
     assert any("Unix time (seconds)" in s for s in interpret.describe_value(1700000000))
     assert any("float32" in s for s in interpret.describe_value(0x40490FDB))
     assert any("x / 3" in s for s in interpret.describe_value(0xAAAAAAAB))
-    # Always returns at least something for an arbitrary value.
+    # General interpretation returns a description for an unmatched value.
     assert interpret.describe_value(0x003FBDA4852ED643)
