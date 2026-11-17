@@ -1,12 +1,4 @@
-"""Interactive 'paste a number' lookup panel (dockable text viewer).
-
-Accepts a hex/decimal value, a byte blob, or a 'quoted string' and shows the
-full CryptoLens explanation: exact match, variant-of, API-hash, ASCII, tables,
-plus general interpretations (timestamp / float / division-magic / pointer) so
-even non-crypto constants from obfuscated binaries are explained.
-
-Analysis is delegated to the testable core (:func:`cryptolens.report.lookup_text`).
-"""
+"""Interactive value-lookup panel backed by ``cryptolens.report``."""
 from __future__ import annotations
 
 from cryptolens import report
@@ -40,12 +32,10 @@ if HAVE_IDA:
             if not self.Create(self.TITLE):
                 return False
             self.ClearLines()
-            self.AddLine("CryptoLens lookup.  Query (Ctrl-Shift-L) to type a "
-                         "value, or put the cursor/highlight on a constant and "
-                         "use 'Lookup value under cursor'.")
-            self.AddLine("Accepts: 0x9E3779B9 | 2654435769 | de ad be ef | "
-                         "'expand 32-byte k'.  Explains crypto constants, "
-                         "variants, API hashes, timestamps, floats and more.")
+            self.AddLine("Enter a number or byte string with Ctrl-Shift-L, or "
+                         "choose 'Lookup value under cursor'.")
+            self.AddLine("Examples: 0x9E3779B9 | 2654435769 | de ad be ef | "
+                         "'expand 32-byte k'")
             self.Refresh()
             return True
 
@@ -115,9 +105,9 @@ if HAVE_IDA:
         val, src = _value_under_cursor()
         if val is None:
             ida_kernwin.warning(
-                "CryptoLens: no number under the cursor. Highlight a constant, "
-                "or place the cursor on an instruction with an immediate, or use "
-                "'Lookup a number...' to type one.")
+                "CryptoLens: no numeric value found. Select a constant, place "
+                "the cursor on an immediate or data item, or choose "
+                "'Lookup a number...'.")
             return
         get_panel().append_report(hex(val), note=src)
 

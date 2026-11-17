@@ -1,8 +1,4 @@
-"""Bit and number-theory utilities used across CryptoLens.
-
-Pure integer operations, no third-party dependencies and no IDA imports, so
-this module can be unit-tested and reused from a plain CLI.
-"""
+"""Integer bit operations and number-theory helpers."""
 from __future__ import annotations
 
 _SMALL_PRIMES = (2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37)
@@ -78,7 +74,7 @@ def hamming(a: int, b: int) -> int:
 
 
 def is_prime(n: int) -> bool:
-    """Deterministic Miller-Rabin for 64-bit range (and correct well beyond)."""
+    """Deterministic Miller-Rabin primality test for 64-bit integers."""
     if n < 2:
         return False
     for p in _SMALL_PRIMES:

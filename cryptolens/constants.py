@@ -1,19 +1,14 @@
-"""Registry of base mathematical constants and the anchor table.
+"""Generate mathematical anchors used by the lookup engine.
 
-An *anchor* is a concrete integer value (at a given bit width) together with the
-recipe that produced it.  Canonical anchors (``cost == 0``) are generated directly from
-:mod:`cryptolens.hpmath` formulas. Only a small allowlist of relationships
-actually documented in algorithms is added (TEA delta*32, RC5's odd e value,
-xxHash's nearby prime, and golden-ratio negation). Earlier cross-product
-rounding/multiplication created unsupported numerology and was removed.
-
-The engine applies only semantically justified query-side transforms. Fuzzy
-single-value resemblance is conservative; automatic algorithm attribution is
-handled by corroborated families in :mod:`cryptolens.familyscan`.
+Canonical anchors come from formulas in :mod:`cryptolens.hpmath`. The index
+also includes a small set of algorithm-defined relationships, including the
+TEA decryption sum, RC5 odd constants, the xxHash32 prime, and golden-ratio
+negation. Automatic algorithm attribution is handled by
+:mod:`cryptolens.familyscan`.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from functools import lru_cache
 from typing import Dict, List, Tuple
 
@@ -43,7 +38,7 @@ _PRIMES80 = [
 
 
 def _canon_generators() -> List[Tuple[int, int, str, str]]:
-    """Yield (value, width, base, recipe) for every canonical anchor."""
+    """Return (value, width, base, recipe) tuples for canonical anchors."""
     out: List[Tuple[int, int, str, str]] = []
 
     for w in (32, 64):
@@ -55,8 +50,7 @@ def _canon_generators() -> List[Tuple[int, int, str, str]]:
                     f"floor(frac(e) * 2^{w})  (precursor to odd RC5 P)"))
         out.append((hp.named_frac_scaled("ln2", w), w, "ln2",
                     f"frac(ln 2) * 2^{w}"))
-        # Put standardized SHA anchors before generic roots so user-facing
-        # recipes prefer the precise attribution for duplicate values.
+        # Prefer the SHA-specific recipe when a generic root has the same value.
         for p in _PRIMES80[:8]:
             out.append((hp.frac_root_scaled(p, 2, w), w, f"sqrt_p{p}",
                         f"frac(sqrt {p}) * 2^{w}  (SHA-2 initial hash)"))
@@ -90,7 +84,6 @@ def _build() -> Tuple[Dict[Tuple[int, int], List[Anchor]], Dict[int, List[int]]]
         value &= util.mask(width)
         key = (width, value)
         anchors = table.setdefault(key, [])
-        # Avoid duplicate recipes for the same value.
         if any(a.recipe == recipe for a in anchors):
             return
         anchors.append(Anchor(value, width, base, recipe, cost, canonical))
@@ -99,9 +92,8 @@ def _build() -> Tuple[Dict[Tuple[int, int], List[Anchor]], Dict[int, List[int]]]
         add(value, width, base, recipe, 0, True)
         canon_values.setdefault(width, set()).add(value & util.mask(width))
 
-    # Only relationships documented in real algorithms are promoted. Earlier
-    # versions rounded/multiplied *every* mathematical anchor, creating more
-    # than two thousand unsupported numerology signatures.
+    # Index only relationships defined by an algorithm. Generic rounding and
+    # multiplication produce unsupported matches.
     g32 = hp.inv_phi_scaled(32)
     g64 = hp.inv_phi_scaled(64)
     add(util.neg(g32, 32), 32, "golden_ratio",

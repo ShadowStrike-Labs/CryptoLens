@@ -1,18 +1,10 @@
-"""Per-function algorithm analysis: extract features, then classify.
+"""Extract IDA function features for structural classification.
 
-Answers "what algorithm is the function under my cursor?".  Features are
-extracted from two sources and merged:
-
-* disassembly  - always available; rol/ror amounts, shift amounts, ARX op
-                 histogram, immediates, &0xFF byte-modular ops, xchg swaps,
-                 loops, and references to known tables.
-* Hex-Rays     - when a decompiler is present; recovers rotations the compiler
-                 folded into shift/or pairs (via the __ROL4__/__ROR4__ helpers),
-                 plus clean constants and byte-array indexing.
-
-All scoring lives in the testable core (:mod:`cryptolens.structure`); this file
-only reads the IDB.  Everything IDA-specific is written defensively so a single
-SDK-version quirk degrades gracefully instead of aborting the analysis.
+The disassembly pass collects rotations, shifts, operation counts, immediates,
+loops, byte-memory access, and table references. When Hex-Rays is available, a
+ctree pass adds helper-based rotations, typed constants, and array indexing.
+Hex-Rays initialization and ctree visitor failures fall back to the
+disassembly-derived features.
 """
 from __future__ import annotations
 
@@ -309,7 +301,7 @@ def format_report(f: structure.FunctionFeatures,
             lines.append(f"  [{match.bucket}] {match.name}  score {match.score:.2f}")
             lines.append(f"        - {match.evidence}; {match.source}")
 
-    # Enrich notable standalone constants through the phase-1 engine.
+    # Add descriptions for standalone constants not covered above.
     enriched = []
     for c in sorted(f.constants):
         if c < 0x100 or c in covered:
@@ -386,7 +378,7 @@ if HAVE_IDA:
                            threshold: float = 0.5) -> List["Finding"]:
         out: List[Finding] = []
         funcs = list(idautils.Functions())
-        msg(f"[CryptoLens] analysing {len(funcs)} functions...\n")
+        msg(f"[CryptoLens] Functions queued for analysis: {len(funcs)}.\n")
         for fea in funcs:
             func = ida_funcs.get_func(fea)
             if func is None:
@@ -406,7 +398,7 @@ if HAVE_IDA:
                     confidence=top.score, bucket=top.bucket,
                     func=f.name))
         out.sort(key=lambda x: -x.confidence)
-        msg(f"[CryptoLens] {len(out)} crypto-like function(s).\n")
+        msg(f"[CryptoLens] Crypto-like functions: {len(out)}.\n")
         return out
 
 else:  # pragma: no cover

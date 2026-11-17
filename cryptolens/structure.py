@@ -1,16 +1,9 @@
-"""Structural algorithm detection from a function's extracted features.
+"""Classify algorithms from features extracted from a function.
 
-This is the "what algorithm is this sub_XXX?" brain.  It is deliberately
-IDA-independent: the IDA layer (:mod:`cryptolens_ida.funcscan`) extracts a
-:class:`FunctionFeatures` from Hex-Rays + disassembly, and this module scores it
-against structural signatures.  That split keeps the hard part (the detection
-logic) unit-testable without launching IDA.
-
-The strongest single feature is the *set of rotation amounts*: ARX ciphers and
-hashes are defined by them (ChaCha 16/12/8/7, Salsa 7/9/13/18, the SHA-2 Sigma
-rotations, MD5's per-round table, SHA-1's 1/5/30).  Rotations are normalised so
-that a right-rotate by r is treated as a left-rotate by width-r, which makes the
-detectors robust to however the compiler/decompiler chose to express them.
+:mod:`cryptolens_ida.funcscan` extracts disassembly and Hex-Rays features. This
+module scores those features without importing IDA. Rotation amounts are
+normalized to left- and right-rotation forms before matching structural
+signatures.
 """
 from __future__ import annotations
 
@@ -594,7 +587,7 @@ def arx_summary(f: FunctionFeatures) -> str:
     if len(L) >= 2 and f.op_counts.get("xor", 0) >= 2 and f.op_counts.get("add", 0) >= 2:
         return (f"ARX structure: rotations {sorted(L)}, "
                 f"xor x{f.op_counts.get('xor', 0)}, add x{f.op_counts.get('add', 0)}, "
-                f"{f.loops} loop(s)")
+                f"loops: {f.loops}")
     return ""
 
 
@@ -605,8 +598,8 @@ def detect_hash_schemes(f: FunctionFeatures) -> List[Tuple[str, str]]:
     """Guess which API-hash scheme(s) a function implements, with evidence.
 
     Returns a list of (scheme_name, evidence) matching the scheme ids in
-    :mod:`cryptolens.apihash`.  Used to narrow constant resolution so a value is
-    not force-fit to an unrelated scheme.
+    :mod:`cryptolens.apihash`. The result limits API-name resolution to
+    structurally compatible schemes.
     """
     out: List[Tuple[str, str]] = []
     R = f.as_right(32)

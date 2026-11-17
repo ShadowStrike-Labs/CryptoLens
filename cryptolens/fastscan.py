@@ -1,10 +1,8 @@
-"""Fast exact-value scanning over a raw byte buffer.
+"""Scan a byte buffer for individual constant signatures.
 
-This pass reports *individual* curated signatures only. Mathematical anchors
-and speculative derivations are intentionally excluded; algorithm-level
-promotion comes from :mod:`cryptolens.familyscan`, which requires related
-constants to co-occur. This separation keeps broad coverage without noisy bulk
-reports.
+Mathematical anchors are excluded from this pass. Related algorithm constants
+are promoted by :mod:`cryptolens.familyscan`, while this module handles values
+that carry useful evidence on their own.
 """
 from __future__ import annotations
 

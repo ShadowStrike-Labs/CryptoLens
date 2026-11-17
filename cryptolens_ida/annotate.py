@@ -6,9 +6,9 @@ from typing import Iterable
 from .ida_shim import HAVE_IDA, ida_bytes, idc
 from .scanners import Finding
 
-# Background colors (IDA uses BGR), one per finding category.
+# IDA item colors are encoded as BGR integers.
 _COLORS = {
-    "instruction": 0x90EE90,  # light green  (actually BGR: 0x90EE90)
+    "instruction": 0x90EE90,
     "table": 0xE0C0FF,
     "family": 0xA8E6CF,
     "constant": 0xC0E0FF,

@@ -1,8 +1,6 @@
-"""CryptoLens core: IDA-independent crypto/hash constant & variant analysis.
+"""CryptoLens core analysis package.
 
-The core (this package) has no IDA imports so it can be unit-tested and used
-from a plain CLI.  The IDA integration lives in ``cryptolens_ida`` and the
-plugin entry point ``cryptolens_plugin.py``.
+IDA-specific adapters are provided by :mod:`cryptolens_ida`.
 """
 from __future__ import annotations
 

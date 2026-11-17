@@ -1,11 +1,11 @@
-"""Crypto library / key-material fingerprints (IDA-independent, testable).
+"""Detect crypto-library, key-material, and algorithm fingerprints.
 
-Two kinds of signal:
+Three signal types:
 
 * string fingerprints - crypto libraries and embedded key material, searched in
   both ASCII and UTF-16LE;
 * exact DER OBJECT IDENTIFIER TLVs - RSA, EC curves, Ed/X25519, SHA and AES
-  modes, which identify serialized keys/certificates with very low ambiguity;
+  modes;
 * CryptoAPI CALG_* ids - small integer algorithm identifiers passed to legacy
   Wincrypt APIs.
 
@@ -52,8 +52,7 @@ STRING_FINGERPRINTS: List[Tuple[str, str, str]] = [
     ("ssh-ed25519 ", "ssh", "OpenSSH ed25519 key"),
 ]
 
-# Exact DER-encoded ASN.1 OBJECT IDENTIFIER TLVs. Full TLVs are distinctive
-# enough for high-confidence algorithm/key-format attribution.
+# DER OBJECT IDENTIFIER entries include the tag and length bytes.
 BYTE_FINGERPRINTS = [
     (bytes.fromhex("06092A864886F70D010101"), "rsaEncryption OID", "oid", "PKCS#1 RSA"),
     (bytes.fromhex("06052B0E03021A"), "id-sha1 OID", "oid", "SHA-1"),

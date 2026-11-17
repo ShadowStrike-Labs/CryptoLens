@@ -20,7 +20,7 @@ def format_explanation(e: engine.Explanation, indent: str = "  ") -> str:
     if e.detail:
         lines.append(f"{sub}detail : {e.detail}")
     if e.algorithms:
-        lines.append(f"{sub}usedby : {'; '.join(e.algorithms)}")
+        lines.append(f"{sub}used by: {'; '.join(e.algorithms)}")
     lines.append(f"{sub}score  : {e.confidence:.2f} ({e.kind})")
     return "\n".join(lines)
 

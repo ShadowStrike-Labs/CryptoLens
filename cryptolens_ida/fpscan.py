@@ -1,9 +1,4 @@
-"""Library/key fingerprints and entropy map over the IDB (thin I/O layer).
-
-* fingerprints  - crypto-library and key-material strings (ASCII + UTF-16LE),
-                  plus CryptoAPI CALG_* ids seen as instruction immediates.
-* entropy       - high-entropy regions (encrypted/compressed/packed blobs).
-"""
+"""Scan IDB segments for crypto fingerprints and high-entropy regions."""
 from __future__ import annotations
 
 from typing import List
@@ -64,8 +59,8 @@ def scan_entropy(threshold: float = 7.2) -> List[Finding]:
 
 
 def scan_all() -> List[Finding]:
-    msg("[CryptoLens] fingerprinting libraries/keys and mapping entropy...\n")
+    msg("[CryptoLens] scanning library/key fingerprints and high-entropy regions...\n")
     out = scan_fingerprints() + scan_entropy()
     out.sort(key=lambda f: (f.category, -f.confidence, f.ea))
-    msg(f"[CryptoLens] {len(out)} fingerprint/entropy finding(s).\n")
+    msg(f"[CryptoLens] Fingerprint/entropy findings: {len(out)}.\n")
     return out

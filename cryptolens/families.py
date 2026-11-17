@@ -1,14 +1,8 @@
-"""Corroborated constant families and sequence matching.
+"""Define constant families used for corroborated attribution.
 
-A single integer can identify a *numeric value* exactly without identifying the
-algorithm that uses it.  For automatic scans CryptoLens therefore promotes an
-algorithm only when several related constants occur together, or when an
-ordered constant table is present.  Manual lookup can still explain every
-individual member.
-
-The catalogue below favors standards and reference implementations.  Sources:
-FIPS 180-4/202, RFC 7693 (BLAKE2), RFC 3713 (Camellia), the SipHash reference,
-Appleby's SMHasher reference, and the xxHash reference header.  See SOURCES.md.
+Automatic scans require several members of a family or an ordered table run.
+Individual members remain available to value lookup. Catalog references are
+listed in ``SOURCES.md``.
 """
 from __future__ import annotations
 

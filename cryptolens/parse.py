@@ -1,8 +1,7 @@
-"""Parsing user input for the lookup panel and interpreting raw values.
+"""Parse input accepted by the value-lookup interface.
 
-Accepts hex (0x..), decimal, binary (0b..), or a quoted/byte string, and offers
-ASCII/endian interpretations so the panel can spot things like the ChaCha
-"expand 32-byte k" sigma words that appear as 32-bit integers.
+Accepted forms include hexadecimal, decimal, binary, quoted text, and byte
+strings. The module also provides ASCII and byte-order representations.
 """
 from __future__ import annotations
 

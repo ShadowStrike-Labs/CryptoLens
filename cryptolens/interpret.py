@@ -1,10 +1,9 @@
-"""General-purpose interpretation of an arbitrary integer (IDA-independent).
+"""Produce general numeric interpretations for an integer.
 
-When the crypto engine finds no constant/variant match, a raw value seen in an
-obfuscated binary is still often *something*: a timestamp, an IEEE-754 float, a
-packed ASCII tag, a compiler division-magic reciprocal, a masked pointer, ...
-``describe_value`` returns a list of plain-language interpretations so the
-lookup panel is useful even on non-crypto constants.
+Interpretations include signed and unsigned forms, byte order, ASCII,
+IEEE-754 values, timestamps, compiler division reciprocals, primality, and
+pointer-shaped values. They supplement the constant catalog when no entry
+matches.
 """
 from __future__ import annotations
 
@@ -104,14 +103,14 @@ def describe_value(value: int) -> List[str]:
     if dm:
         out.append(dm)
 
-    # Prime / parity hints (only for modest magnitudes to stay fast)
+    # Primality is limited to values below 2^64.
     if 2 <= value < (1 << 64):
         if util.is_prime(value):
             out.append("is prime")
         elif value & 1 == 0:
             out.append("even")
 
-    # Pointer-ish hint: high byte zero in a 64-bit-looking value.
+    # A zero top byte can indicate a masked value or canonical user pointer.
     if value > util.mask(32) and (value >> 56) == 0:
         out.append("note: top byte is zero (possibly a masked / 56-bit value "
                    "or user-mode pointer)")

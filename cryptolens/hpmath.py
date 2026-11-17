@@ -1,18 +1,15 @@
-"""High-precision derivation of mathematical constants as scaled integers.
+"""Derive scaled integer constants with high-precision arithmetic.
 
-Everything CryptoLens treats as a "magic constant" is produced here from a
-formula (a square root, cube root, fractional part, pi/e/ln2, or sine) rather
-than hard-coded.  That is what lets the engine recognise *variants*: it knows
-the generating recipe, not just one frozen 32/64-bit value.
-
-No third-party dependencies: arbitrary-precision ints plus ``decimal``.
+The module implements the formulas used by the constant catalog: integer
+roots, fractional roots, pi, e, ln(2), the golden ratio, and sine. It has no
+third-party dependencies.
 """
 from __future__ import annotations
 
 from decimal import Decimal, getcontext, ROUND_FLOOR
 from math import isqrt
 
-getcontext().prec = 160  # far more than enough for 64-bit fractional extraction
+getcontext().prec = 160  # Precision margin for 64-bit fractional extraction.
 
 
 # --------------------------------------------------------------------------

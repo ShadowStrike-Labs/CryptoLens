@@ -1,8 +1,7 @@
-"""Internal verification suite (no pytest dependency).
+"""Run core verification without pytest.
 
-Confirms that constants derive correctly from formulas and that the engine
-classifies the headline scenarios as expected.  Run with:
-    python -m cryptolens selftest
+Checks formula-derived constants, catalog invariants, and representative
+engine classifications. Invoke with ``python -m cryptolens selftest``.
 """
 from __future__ import annotations
 
@@ -49,7 +48,7 @@ def check_engine(failures: list) -> None:
     _check(top is not None and "TEA" in top.summary,
            "explain 0xC6EF3720 -> TEA x32", failures)
 
-    # The flagship: a 1-bit-off golden-ratio value is a variant, not exact.
+    # A one-bit change remains a variant rather than an exact match.
     top = _top(0x9E3779F9, 32)
     _check(top is not None and top.kind == "variant"
            and "golden-ratio" in top.summary

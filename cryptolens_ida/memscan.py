@@ -1,16 +1,8 @@
-"""Debugger memory scan: recover runtime keys/tables/states from live memory.
+"""Scan debugger memory for keys, cipher state, tables, and constants.
 
-Only useful during an active debug session.  It walks the process memory map
-and feeds each (by default writable) region to the testable core:
-
-* AES key schedules  -> recovered key bytes (cryptolens.memfind.find_aes_keys)
-* RC4 states         -> 256-byte permutations (find_rc4_states)
-* ChaCha/Salsa states-> "expand 32-byte k" blocks (find_chacha_states)
-* runtime tables     -> AES S-box / CRC / Base64 (tables.detect_tables)
-* runtime constants  -> known values (fastscan.scan_buffer)
-
-Keys/states live in writable memory, so restricting to writable regions is both
-correct and a large speed-up; pass only_writable=False to scan everything.
+The default scan covers writable regions, where expanded keys and mutable
+cipher state commonly reside. Set ``only_writable=False`` to include all mapped
+regions.
 """
 from __future__ import annotations
 
@@ -56,7 +48,7 @@ def scan_memory(only_writable: bool = True, max_region: int = 16 * 1024 * 1024,
 
     findings: List[Finding] = []
     regions = _regions()
-    msg(f"[CryptoLens] memory scan over {len(regions)} region(s)...\n")
+    msg(f"[CryptoLens] Memory regions queued: {len(regions)}.\n")
     for start, end, perm in regions:
         size = end - start
         if size <= 0 or size > max_region:
@@ -79,7 +71,7 @@ def scan_memory(only_writable: bool = True, max_region: int = 16 * 1024 * 1024,
                 findings.append(Finding(
                     ea=h.offset, category="memory",
                     title="RC4 state (256-byte permutation)",
-                    detail="permutation of 0..255 in writable memory",
+                    detail="permutation of 0..255 in process memory",
                     confidence=0.8, bucket="medium"))
         if do_chacha:
             for h in memfind.find_chacha_states(data, base=start):
@@ -110,5 +102,5 @@ def scan_memory(only_writable: bool = True, max_region: int = 16 * 1024 * 1024,
                     bucket=h.bucket, value=h.value, width=h.width))
 
     findings.sort(key=lambda f: (-f.confidence, f.ea))
-    msg(f"[CryptoLens] memory scan: {len(findings)} finding(s).\n")
+    msg(f"[CryptoLens] Memory findings: {len(findings)}.\n")
     return findings

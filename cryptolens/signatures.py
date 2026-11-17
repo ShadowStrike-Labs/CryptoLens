@@ -1,17 +1,9 @@
-"""Named-constant database: which algorithms *use* a given value.
+"""Map exact values to algorithms and roles.
 
-The constant engine explains *why* a number has its value (it equals
-frac(sqrt 2)*2^32, say).  This database explains *where* such a number shows up
-in real code.  The engine merges both so a report can read, e.g.:
-
-    0x9E3779B9  golden-ratio reciprocal floor(2^32/phi)
-                -> TEA/XTEA/XXTEA delta, RC5/RC6 magic, boost::hash_combine
-
-Individual values are available to manual lookup. Automatic scans attach an
-isolated-evidence strength and use :mod:`cryptolens.families` for co-occurrence,
-so a shared value such as 0x9E3779B9 is not automatically declared to be TEA.
-Only semantically valid transforms (principally byte order and CRC reflection)
-are considered by the engine.
+Formula provenance is defined in :mod:`cryptolens.constants`; this module
+records algorithm usage. Individual matches are available to value lookup.
+Automatic scans use the per-signature strength and corroborated families from
+:mod:`cryptolens.families`.
 """
 from __future__ import annotations
 
@@ -139,10 +131,10 @@ _RAW: List[Tuple[int, int, str, str, str]] = [
 
 
 def _legacy_strength(value: int, algorithm: str, role: str) -> float:
-    """How strongly one isolated value supports automatic attribution.
+    """Return the automatic-scan strength of an isolated signature.
 
-    This is separate from numeric-match certainty. Shared IVs/mixing constants
-    remain exact in manual lookup, but are intentionally weak scan evidence.
+    Numeric match certainty and algorithm attribution are scored separately.
+    Shared IVs and mixing constants require family evidence for promotion.
     """
     if "CRC" in algorithm and "polynomial" in role:
         return 0.90

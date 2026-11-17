@@ -1,13 +1,7 @@
-"""Binary scanners that feed IDB bytes/instructions into the testable core.
+"""Read IDB segments and instructions for CryptoLens scan passes.
 
-Produces a flat list of :class:`Finding` objects consumed by the results
-chooser and the annotator.  Four passes:
-
-* data constants   - aligned 32/64-bit words matched against known values
-* known tables     - AES S-box, CRC tables, Base64 alphabets, custom alphabets
-* code immediates  - instruction immediates run through the full engine
-                     (this is where golden-ratio-*variant* detection happens)
-* crypto CPU insns - AES-NI / SHA-NI / PCLMULQDQ / CRC32 / RDRAND mnemonics
+The module emits :class:`Finding` records for hardware instructions, lookup
+tables, constant families, standalone constants, and instruction immediates.
 """
 from __future__ import annotations
 
@@ -23,7 +17,7 @@ from .ida_shim import (HAVE_IDA, ida_bytes, ida_funcs, ida_segment, ida_ua,
 @dataclass
 class Finding:
     ea: int
-    category: str              # "constant" | "table" | "immediate" | "instruction"
+    category: str
     title: str
     detail: str = ""
     confidence: float = 1.0
@@ -195,10 +189,10 @@ def collect_code_records() -> List[CodeRecord]:
 
 
 def scan_code_families(code_records=None) -> List[Finding]:
-    """Correlate immediates per function or a true sliding code window.
+    """Correlate immediates per function or sliding code window.
 
-    The 4-KiB sliding fallback covers packed/boundary-broken binaries without
-    the gaps caused by fixed address buckets.
+    The 4-KiB fallback also covers binaries with missing or incorrect function
+    boundaries.
     """
     func_groups = {}
     orphan_events = []
@@ -360,5 +354,5 @@ def run_all(data_constants: bool = True, do_tables: bool = True,
     findings = [f for f in findings if rank.get(f.bucket, 0) >= cutoff]
     findings.sort(key=lambda f: (_CATEGORY_ORDER.get(f.category, 9),
                                  -f.confidence, f.ea))
-    msg(f"[CryptoLens] {len(findings)} finding(s).\n")
+    msg(f"[CryptoLens] Findings: {len(findings)}.\n")
     return findings

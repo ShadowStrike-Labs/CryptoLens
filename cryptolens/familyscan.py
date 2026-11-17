@@ -1,9 +1,8 @@
-"""Low-false-positive family and ordered-sequence scanner.
+"""Find constant families and ordered constant sequences.
 
-Unlike the individual-value lookup, this scanner promotes an algorithm only
-when multiple members of one curated family occur in a small region, or an
-ordered run appears.  It works on raw bytes, including binaries where IDA could
-not recover function boundaries.
+A family match requires related values within a bounded region or an ordered
+run. The scanner accepts raw buffers and does not depend on IDA function
+boundaries.
 """
 from __future__ import annotations
 
@@ -23,8 +22,7 @@ def _sequence_hits(buf: bytes, base: int) -> List[families.FamilyMatch]:
         size = fam.width // 8
         if len(buf) < size * m:
             continue
-        # Search every possible m-word fragment with bytes.find (implemented
-        # in C). This catches partial tables that start at K[1], K[2], etc.
+        # Search every m-word fragment. bytes.find performs the buffer scan in C.
         starts = range(0, len(fam.values) - m + 1)
         for endian in ("little", "big"):
             for start_idx in starts:
@@ -56,9 +54,7 @@ def _sequence_hits(buf: bytes, base: int) -> List[families.FamilyMatch]:
                             base + off, "sequence", fam.source,
                         ))
                     pos = off + max(1, run * size)
-    # Representative checkpoints inside one full array produce overlapping
-    # hits. Keep the earliest/longest covering run while retaining genuinely
-    # separate arrays.
+    # Merge overlapping runs from the same array.
     merged: List[families.FamilyMatch] = []
     for hit in sorted(out, key=lambda h: (h.family_id, h.offset, -len(h.matched))):
         size = hit.width // 8
@@ -74,9 +70,9 @@ def _sequence_hits(buf: bytes, base: int) -> List[families.FamilyMatch]:
 
 def scan_events(events: Iterable[Tuple[int, int, int]], window: int = 0x1000,
                 base: int = 0) -> List[families.FamilyMatch]:
-    """Match positioned ``(offset, width, value)`` events with a true sliding
-    window. Any qualifying set spanning at most ``window`` bytes is found;
-    there are no fixed-bucket boundary gaps.
+    """Match positioned ``(offset, width, value)`` events in a sliding window.
+
+    Every qualifying set spanning at most ``window`` bytes is considered.
     """
     grouped: DefaultDict[str, List[Tuple[int, int]]] = defaultdict(list)
     for off, width, value in events:
@@ -114,8 +110,7 @@ def scan_events(events: Iterable[Tuple[int, int, int]], window: int = 0x1000,
                 base + loc, "cluster", match.source,
             ))
 
-    # Sliding windows naturally yield many supersets of the same local family.
-    # Keep the strongest representative, but retain distinct regions.
+    # Keep one representative for overlapping windows of the same family.
     out: List[families.FamilyMatch] = []
     for hit in sorted(raw, key=lambda h: (-h.score, -len(h.matched), h.offset)):
         if any(old.family_id == hit.family_id
@@ -129,12 +124,10 @@ def _cluster_hits(buf: bytes, base: int, window: int) -> List[families.FamilyMat
     events: List[Tuple[int, int, int]] = []
     idx = families.value_index()
 
-    # Read recognized 64-bit values first. Suppress their two constituent
-    # dwords so SHA-512 does not masquerade as SHA-256, SHA-384 as SHA-224, or
-    # xxHash64 as xxHash32 merely because related 32-bit values occupy halves.
+    # Suppress constituent dwords of recognized qwords. This prevents
+    # SHA-512/SHA-256, SHA-384/SHA-224, and xxHash64/xxHash32 aliases.
     covered_dwords = set()
-    # Try every naturally dword-aligned qword, not only 8-byte addresses: packed
-    # tables often begin at address 4 mod 8.
+    # Qword tables may begin at addresses congruent to 4 modulo 8.
     size = 8
     first = (-base) % 4
     for off in range(first, len(buf) - size + 1, 4):
@@ -165,9 +158,8 @@ def scan_buffer(buf: bytes, base: int = 0, window: int = 0x1000
                and abs(old.offset - hit.offset) < window for old in clusters):
             continue
         clusters.append(hit)
-    # An ordered sequence subsumes a cluster for the same family nearby. A
-    # wider-word sequence also suppresses a narrower family made solely from
-    # its high/low halves (SHA-512 -> SHA-256 alias, etc.).
+    # Ordered hits supersede nearby clusters. A 64-bit sequence also
+    # supersedes a 32-bit family formed only from its word halves.
     out = list(seq)
     for c in clusters:
         if any(s.family_id == c.family_id and abs(s.offset - c.offset) < window

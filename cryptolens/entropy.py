@@ -1,8 +1,7 @@
-"""Shannon entropy and high-entropy region detection (IDA-independent).
+"""Compute Shannon entropy and merge adjacent high-entropy blocks.
 
-A map of per-block entropy highlights encrypted/compressed/packed blobs, which
-is where keys, ciphertext and packed stages hide.  Entropy is in bits/byte
-(0..8); ~7.2+ sustained over several blocks is a strong "random-looking" signal.
+Entropy is reported in bits per byte (0..8). High entropy can indicate
+encrypted, compressed, or packed data, but does not identify an algorithm.
 """
 from __future__ import annotations
 

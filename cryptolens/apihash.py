@@ -1,9 +1,7 @@
-"""API-name hashing schemes used by shellcode / PIC loaders.
+"""Compute and reverse common API-name hash schemes.
 
-Runtime values are often hashes of API names (classic kernel32!GetProcAddress
-resolved by hash). This builds a reverse map over common API/DLL names so the
-lookup panel can answer "0x7C0DFCAA -> ror13_add('GetProcAddress')".
-Pure Python (zlib from stdlib for CRC-32).
+The reverse index covers frequently resolved Windows API and DLL names. The
+module uses only the Python standard library.
 """
 from __future__ import annotations
 
@@ -168,7 +166,7 @@ def list_schemes() -> List[str]:
     return [s.name for s in SCHEMES]
 
 
-# Additional frequently hashed Win32 APIs / DLLs (loader & C2 behaviour).
+# Additional frequently hashed Win32 APIs / DLLs (loader & C2 behavior).
 EXTRA_WORDLIST: Tuple[str, ...] = (
     "GetModuleHandleExA", "GetModuleFileNameW", "LoadLibraryExW",
     "FreeLibrary", "GetModuleHandleExW", "GetProcessImageFileNameA",
@@ -197,13 +195,7 @@ EXTRA_WORDLIST: Tuple[str, ...] = (
 
 
 def resolve(values, schemes=None):
-    """Resolve integer values to API-hash hits, optionally filtered by scheme.
-
-    ``values``  - iterable of candidate hash integers (e.g. function immediates)
-    ``schemes`` - optional iterable of scheme ids (from
-                  ``structure.detect_hash_schemes``) to avoid force-fitting a
-                  value to an unrelated scheme.
-    """
+    """Resolve values to API-hash hits, optionally limited to schemes."""
     rev = _reverse()
     want = set(schemes) if schemes else None
     out: List[ApiHashHit] = []

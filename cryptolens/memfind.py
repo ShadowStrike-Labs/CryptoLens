@@ -1,16 +1,8 @@
-"""Runtime-memory recovery helpers (IDA-independent, testable).
+"""Recover cryptographic state from memory buffers.
 
-Used by the debugger memory scan, but pure: give it a byte buffer and it finds
-
-* AES key schedules - by re-deriving the expansion from each candidate key and
-  checking it against the following bytes (the aeskeyfind idea); this recovers
-  the actual key, for AES-128/192/256.
-* RC4 states - 256-byte windows that are a permutation of 0..255 (found with an
-  O(n) rolling distinct-byte count).
-* ChaCha/Salsa states - the literal "expand 32-byte k" constant block.
-
-None of this needs any magic constant to be present in the image on disk, which
-is the whole point of scanning live memory.
+The module detects valid AES-128/192/256 key schedules, 256-byte RC4
+permutations, and ChaCha/Salsa state markers. It does not import IDA and does
+not depend on constants being present in the file image.
 """
 from __future__ import annotations
 
@@ -56,10 +48,9 @@ def expand_key(key: bytes) -> bytes:
 
 
 def _schedule_matches(buf: bytes, off: int, key_size: int) -> bool:
-    """True if buf[off:] begins with a valid expanded key of this size.
+    """Check whether ``buf[off:]`` contains an AES expanded key.
 
-    Generates words one at a time and bails on the first mismatch, so almost
-    every offset is rejected after comparing the first derived 4 bytes.
+    Words are generated incrementally; comparison stops at the first mismatch.
     """
     nk, nr = _PARAMS[key_size]
     total = 4 * (nr + 1)

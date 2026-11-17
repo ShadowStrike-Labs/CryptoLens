@@ -116,7 +116,7 @@ def _do_export() -> None:
     else:
         with open(path, "w", encoding="utf-8") as fh:
             json.dump(rows, fh, indent=2)
-    msg(f"[CryptoLens] exported {len(findings)} finding(s) to {path}\n")
+    msg(f"[CryptoLens] Exported findings: {len(findings)}; path: {path}\n")
 
 
 def _write_html(path: str, findings: List[Finding]) -> None:
@@ -173,15 +173,14 @@ if HAVE_IDA:
         (ACT_LOOKUP, "Lookup a number...", lookup.prompt_and_query,
          "Ctrl-Shift-L", "Explain a value / bytes / string"),
         (ACT_LOOKUP_CUR, "Lookup value under cursor", lookup.lookup_current,
-         "", "Explain the constant highlighted or at the cursor (no typing)"),
+         "", "Read and explain the selected or current value"),
         (ACT_ANNOTATE, "Annotate findings in IDB", _do_annotate,
          "", "Add comments and colors for the last scan"),
         (ACT_EXPORT, "Export findings (JSON/HTML)...", _do_export,
          "", "Export the last scan results"),
     ]
 
-    # Attach the single-function analyzer to the right-click popup of the
-    # disassembly and pseudocode views, so it is available where the cursor is.
+    # Add context actions to disassembly, pseudocode, and hex views.
     _POPUP_WIDGETS = (
         getattr(ida_kernwin, "BWN_DISASM", 1),
         getattr(ida_kernwin, "BWN_PSEUDOCODE", 51),
@@ -251,9 +250,7 @@ if HAVE_IDA:
         def term(self):
             _unregister_actions()
 
-    # Bind the class as a default argument so PLUGIN_ENTRY never relies on a
-    # late global lookup (robust even if IDA execs the entry with split
-    # globals/locals namespaces).
+    # Compatibility entry point when this module is loaded directly.
     def PLUGIN_ENTRY(_cls=CryptoLensPlugin):
         return _cls()
 

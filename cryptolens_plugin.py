@@ -1,19 +1,9 @@
 # -*- coding: utf-8 -*-
-"""CryptoLens - IDA Pro plugin entry point.
+"""IDA Pro entry point for CryptoLens.
 
-IDA discovers this file via ``ida-plugin.json`` (``entryPoint``) and then calls
-``PLUGIN_ENTRY()``, which must return an ``ida_idaapi.plugin_t`` instance.
-
-The real plugin lives in the ``cryptolens_ida`` package next to this file; the
-analysis core is the ``cryptolens`` package.  The plugin *class* is imported
-*inside* ``PLUGIN_ENTRY`` (a function-local import) on purpose: IDA executes
-this entry file with separate globals/locals namespaces, so a top-level import
-bound to a module global is not visible when IDA later calls the entry.  A
-local import + local instantiation is immune to that (this mirrors how other
-IDA 9.x Python plugins are structured).
-
-Install: copy this folder (with ``ida-plugin.json``) into your IDA user plugins
-directory, e.g. ``%APPDATA%\\Hex-Rays\\IDA Pro\\plugins\\CryptoLens\\``.
+IDA discovers this file through ``ida-plugin.json`` and calls
+``PLUGIN_ENTRY()``. The function-local plugin import is required for IDA builds
+that execute entry files with separate global and local namespaces.
 """
 import os
 import sys

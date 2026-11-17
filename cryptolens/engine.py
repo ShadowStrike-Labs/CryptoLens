@@ -1,20 +1,13 @@
-"""The explanation engine: turn an arbitrary integer into ranked findings.
+"""Rank exact and near matches for an integer.
 
-Pipeline for ``explain(value, width)``:
+``explain(value, width)`` checks generated mathematical anchors and curated
+algorithm signatures. It applies byte-order conversion, documented
+golden-ratio negation, and CRC bit reflection. Shared constants retain all
+candidate attributions. If no exact match exists, the constrained resemblance
+pass may report a golden-ratio near match or a low-confidence one-bit hint.
 
-1.  Apply a small catalogue of semantically justified transforms (identity,
-    byte order, documented golden-ratio negation, CRC bit reflection).
-2.  Look up generated mathematical anchors and curated algorithm signatures.
-    Shared constants are reported as shared rather than attributed to whichever
-    algorithm happened to be listed first.
-3.  If nothing matches, run a conservative resemblance pass. Golden-ratio
-    near-neighbours retain the requested "variant" feature; generic one-bit
-    neighbours are low-confidence manual-lookup hints only.
-
-Automatic binary scans use :mod:`cryptolens.familyscan` to require related
-constants to co-occur before making algorithm-level claims.
-
-The engine has no IDA dependency and is fully unit-testable.
+Automatic binary attribution is handled by :mod:`cryptolens.familyscan`, which
+requires related values or an ordered sequence.
 """
 from __future__ import annotations
 
@@ -33,7 +26,7 @@ class Explanation:
     width: int
     kind: str                       # exact | named | transform | variant
     confidence: float               # 0..1
-    summary: str                    # one-line headline
+    summary: str                    # one-line description
     recipe: str = ""                # mathematical origin
     transform: str = ""             # transform chain from the base value
     detail: str = ""                # distance / bit notes
@@ -75,7 +68,7 @@ def base_pretty(base: str) -> str:
 # Query-side transforms
 # --------------------------------------------------------------------------
 def _candidates(value: int, width: int) -> List[Tuple[str, int, int]]:
-    """Yield (transform_text, cost, transformed_value), deduped by value."""
+    """Return deduplicated (transform, cost, value) candidates."""
     value &= util.mask(width)
     out: List[Tuple[str, int, int]] = []
     seen = {}
@@ -114,9 +107,9 @@ def _assemble(value: int, width: int) -> List[Explanation]:
         anchors = constants.lookup(tv, width)
         sigs = signatures.lookup(tv, width)
         is_identity = (ttext == "")
-        # Transforms are family-specific, not universal numerology. Byte order
-        # applies generally; bit reversal is meaningful for reflected CRCs;
-        # negation is retained only for the documented golden-ratio pair.
+        # Restrict transformations by semantics: byte order is general, bit
+        # reversal applies to reflected CRCs, and negation applies to the
+        # documented golden-ratio pair.
         if not is_identity:
             anchors = [a for a in anchors if a.canonical]
             if ttext.startswith("bit-reversed"):
@@ -214,11 +207,10 @@ def _half_projections(value: int) -> List[Explanation]:
 # Fuzzy variant search (canonical anchors only)
 # --------------------------------------------------------------------------
 def _fuzzy(value: int, width: int, max_results: int = 4) -> List[Explanation]:
-    """Conservative single-value resemblance hints.
+    """Return constrained single-value resemblance hints.
 
-    Automatic family scans use co-occurrence instead. Here we keep the user's
-    requested golden-ratio variant feature, while generic one-bit neighbours
-    are explicitly low-confidence lookup hints rather than algorithm claims.
+    Golden-ratio near matches may receive medium confidence. Other one-bit
+    neighbors remain low-confidence lookup hints.
     """
     if value < 0x100:
         return []
@@ -247,7 +239,7 @@ def _fuzzy(value: int, width: int, max_results: int = 4) -> List[Explanation]:
                 detail = f"numeric offset {delta:+#x}"
         elif d == 1:
             conf = 0.42
-            detail = "one-bit numerical neighbour; uncorroborated"
+            detail = "one-bit numerical neighbor; uncorroborated"
         if conf == 0.0:
             continue
 
@@ -298,7 +290,7 @@ def explain_multi(value: int, widths=(32, 64, 16), max_results: int = 8) -> List
             continue
         out += explain(value, w, max_results=max_results)
     out.sort(key=lambda e: e.confidence, reverse=True)
-    # dedupe identical summaries across widths
+    # Deduplicate repeated findings within each width.
     seen = set()
     uniq = []
     for e in out:

@@ -1,8 +1,4 @@
-"""Thin shim over the IDA SDK so the rest of the package imports cleanly.
-
-All IDA modules are imported here behind ``HAVE_IDA``.  Non-IDA logic lives in
-the ``cryptolens`` core package; this layer only does I/O against the IDB.
-"""
+"""Isolate optional IDA SDK imports for the integration package."""
 from __future__ import annotations
 
 HAVE_IDA = True

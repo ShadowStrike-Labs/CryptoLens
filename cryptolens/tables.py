@@ -1,10 +1,8 @@
-"""Known lookup tables and table detection (IDA-independent, testable).
+"""Generate and detect cryptographic lookup tables.
 
-Tables are *computed* from their definitions rather than hard-coded as giant
-byte literals, so there is nothing to mistype: the AES S-box comes from the
-GF(2^8) inverse + affine map, the CRC tables from their polynomials, etc.
-``detect_tables(buf)`` slides over a byte buffer and reports matches plus a
-heuristic for custom Base64 alphabets.
+The AES S-box is generated from the GF(2^8) inverse and affine map. CRC tables
+are generated from their polynomials. The module also recognizes selected
+encoding alphabets and the BLAKE2 message permutation.
 """
 from __future__ import annotations
 
@@ -33,7 +31,7 @@ def _gmul(a: int, b: int) -> int:
 @lru_cache(maxsize=1)
 def aes_sbox() -> bytes:
     inv = [0] * 256
-    # multiplicative inverse via exhaustive search (256 values, trivial)
+    # Exhaustive inversion is bounded to 256 x 256 byte values.
     for a in range(256):
         for b in range(256):
             if _gmul(a, b) == 1:

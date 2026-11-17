@@ -1,16 +1,9 @@
-"""API-hash resolution inside IDA: name the hashed imports and write an enum.
+"""Resolve API-name hashes and apply IDA enum members.
 
-Flow for a function:
-  1. extract features -> guess the hashing scheme (structure.detect_hash_schemes)
-  2. collect instruction immediates (with their addresses/operand indices)
-  3. resolve those values to API names, filtered by the guessed scheme(s);
-     if no scheme was structurally obvious, infer it from a majority vote of the
-     resolved names
-  4. create/extend an IDA enum and switch the matching operands to it, so the
-     magic numbers display as GetProcAddress, LoadLibraryA, ... and add comments
-
-Enum/operand mutation is best-effort and wrapped defensively: if the running
-IDA build rejects an API call, resolution and commenting still happen.
+The resolver fingerprints a hash scheme from function features, maps immediate
+values to candidate API names, and optionally creates an IDA enum and operand
+annotations. Enum updates are isolated so resolution still completes when an
+IDA version rejects a mutation call.
 """
 from __future__ import annotations
 
@@ -88,7 +81,7 @@ def _comment(ea: int, text: str) -> None:
 
 
 def _resolve_values(values, schemes):
-    """Resolve values; if no scheme given, infer by majority vote (>=2)."""
+    """When no scheme is known, retain schemes supported by two or more hits."""
     hits = apihash.resolve(values, schemes if schemes else None)
     if not schemes and hits:
         votes = Counter(h.scheme for h in hits)
@@ -112,7 +105,6 @@ def resolve_in_function(func_ea: int, create_enum: bool = True,
     values = set(imm_addrs) | set(feats.constants)
 
     hits, schemes = _resolve_values(values, schemes)
-    # dedupe by (value, name, scheme)
     uniq = {}
     for h in hits:
         uniq[(h.value, h.name, h.scheme)] = h
@@ -144,7 +136,7 @@ def resolve_in_function(func_ea: int, create_enum: bool = True,
                 _comment(ea, "CryptoLens: " + " / ".join(names))
             applied += 1
 
-    lines.append(f"  resolved {len(hits)} name(s); relabelled {applied} operand(s)"
+    lines.append(f"  names resolved: {len(hits)}; operands relabeled: {applied}"
                  + (f"; enum '{_ENUM_NAME}'" if eid is not None else ""))
     for h in sorted(hits, key=lambda x: x.name):
         v = f" ({h.variant})" if h.variant else ""
@@ -194,11 +186,12 @@ def resolve_in_binary(create_enum: bool = True, apply_operands: bool = True):
         top = sorted(hits, key=lambda x: x.name)
         findings.append(Finding(
             ea=fea, category="apihash",
-            title=f"API-hash resolver ({len(hits)} names)",
+            title=f"API-hash resolver (matches: {len(hits)})",
             detail=", ".join(h.name for h in top[:4]) + (" ..." if len(top) > 4 else ""),
             confidence=0.95, bucket="high", func=fname))
 
-    msg(f"[CryptoLens] resolved {total_hits} hashed name(s) in "
-        f"{len(findings)} function(s).\n")
-    text = f"Resolved {total_hits} hashed API name(s) across {len(findings)} function(s)."
+    msg(f"[CryptoLens] API-hash matches: {total_hits}; "
+        f"functions: {len(findings)}.\n")
+    text = (f"API-hash matches: {total_hits}; "
+            f"functions: {len(findings)}.")
     return text, findings
