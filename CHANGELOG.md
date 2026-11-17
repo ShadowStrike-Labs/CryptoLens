@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.3.0 — precision catalogue
+## 0.3.0 (precision catalog)
 
 ### Added
 
@@ -11,8 +11,8 @@
   co-occurrence matching, including code islands without IDA functions.
 - BLAKE2 sigma, AES Rcon, CRC-32K/Q, RC4 identity and Base58 table signatures.
 - ASN.1 DER OID fingerprints for RSA, EC curves, Ed25519/X25519, SHA and AES.
-- 21 precision/adversarial regressions in `test_catalog_precision.py`.
-- Catalogue provenance in `SOURCES.md`.
+- 23 catalog and precision tests in `test_catalog_precision.py`.
+- Catalog provenance in `SOURCES.md`.
 
 ### Corrected
 
@@ -47,5 +47,5 @@
 
 ## 0.1.0
 
-- Generative mathematical constant engine, manual lookup, static table/value
+- Formula-derived mathematical constants, manual lookup, static table/value
   scanner, IDA results UI, annotation and JSON/HTML export.
