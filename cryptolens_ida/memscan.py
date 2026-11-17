@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from typing import List, Tuple
 
-from cryptolens import fastscan, memfind, tables
+from cryptolens import families, familyscan, fastscan, memfind, tables
 
 from .ida_shim import (HAVE_IDA, ida_bytes, ida_dbg, ida_idd, ida_segment,
                        idaapi, idautils, msg)
@@ -93,15 +93,21 @@ def scan_memory(only_writable: bool = True, max_region: int = 16 * 1024 * 1024,
                 findings.append(Finding(
                     ea=h.offset, category="memory",
                     title=f"runtime table: {h.name}", detail=h.note,
-                    confidence=1.0, bucket="high"))
+                    confidence=h.confidence,
+                    bucket=("high" if h.confidence >= 0.85 else "medium")))
         if do_constants:
+            for h in familyscan.scan_buffer(data, base=start):
+                findings.append(Finding(
+                    ea=h.offset, category="memory",
+                    title=f"runtime family: {h.name}", detail=h.evidence,
+                    confidence=h.score, bucket=h.bucket, width=h.width))
             for h in fastscan.scan_buffer(data, base=start, aligned=True):
-                if h.bucket != "high":
+                if h.bucket != "high" or families.memberships(h.value, h.width):
                     continue
                 findings.append(Finding(
                     ea=h.offset, category="memory", title=f"runtime constant: {h.summary}",
-                    detail=f"{h.width}-bit", confidence=1.0, bucket="high",
-                    value=h.value, width=h.width))
+                    detail=f"{h.width}-bit", confidence=h.confidence,
+                    bucket=h.bucket, value=h.value, width=h.width))
 
     findings.sort(key=lambda f: (-f.confidence, f.ea))
     msg(f"[CryptoLens] memory scan: {len(findings)} finding(s).\n")

@@ -10,6 +10,7 @@ from .scanners import Finding
 _COLORS = {
     "instruction": 0x90EE90,  # light green  (actually BGR: 0x90EE90)
     "table": 0xE0C0FF,
+    "family": 0xA8E6CF,
     "constant": 0xC0E0FF,
     "immediate": 0xC0FFFF,
     "function": 0xB0E0B0,

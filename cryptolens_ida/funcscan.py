@@ -17,15 +17,45 @@ SDK-version quirk degrades gracefully instead of aborting the analysis.
 from __future__ import annotations
 
 import re
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
-from cryptolens import engine, structure, tables
+from cryptolens import engine, families, structure, tables
 
 from .ida_shim import (HAVE_IDA, ida_bytes, ida_funcs, ida_ua, idaapi,
                        idautils, idc, msg)
 
 _ROT_RE = re.compile(r"__(ROL|ROR)([1248])__")
 _TABLE_CACHE = {}
+_CONST_CACHE = {}
+
+
+def _family_constants_at(ea: int) -> List[Tuple[int, int]]:
+    """Return typed family words around a referenced data address.
+
+    Scan qwords at every 4-byte boundary and include four bytes before the xref,
+    because optimized x86 may reference the high half of a 64-bit table word.
+    ``FunctionFeatures.add_constant`` performs global half-alias suppression
+    across all xrefs in the function.
+    """
+    if ea in _CONST_CACHE:
+        return _CONST_CACHE[ea]
+    start = max(0, ea - 4)
+    data = ida_bytes.get_bytes(start, 264)
+    if not data:
+        start = ea
+        data = ida_bytes.get_bytes(start, 256) or b""
+    found = set()
+    idx = families.value_index()
+    for off in range(0, len(data) - 7, 4):
+        value = int.from_bytes(data[off:off + 8], "little")
+        if (64, value) in idx:
+            found.add((64, value))
+    for off in range(0, len(data) - 3, 4):
+        value = int.from_bytes(data[off:off + 4], "little")
+        if (32, value) in idx:
+            found.add((32, value))
+    _CONST_CACHE[ea] = sorted(found, key=lambda item: -item[0])
+    return _CONST_CACHE[ea]
 
 
 def _dtype_width(op) -> int:
@@ -52,7 +82,7 @@ def _table_names_at(ea: int) -> List[str]:
     data = ida_bytes.get_bytes(ea, 1056) or b""
     if data:
         for hit in tables.detect_tables(data, base=0):
-            if hit.offset <= 64:
+            if hit.offset <= 64 and hit.confidence >= 0.85:
                 names.append(hit.name)
     _TABLE_CACHE[ea] = names
     return names
@@ -104,17 +134,31 @@ def _extract_asm(func, f: structure.FunctionFeatures) -> None:
         elif mnem in ("aesenc", "aesenclast", "aesdec", "aesdeclast",
                       "aesimc", "aeskeygenassist"):
             f.has_aesni = True
-        elif mnem.startswith("sha1") or mnem.startswith("sha256"):
+        elif mnem.startswith("sha1"):
+            f.has_sha1ni = True
+            f.has_shani = True
+        elif mnem.startswith("sha256"):
+            f.has_sha256ni = True
             f.has_shani = True
 
+        if mnem.startswith("j") and mnem not in ("jmp", "jmpfi", "jmpni"):
+            f.conditional_branches += 1
+
+        mem_types = {ida_ua.o_mem, ida_ua.o_phrase, ida_ua.o_displ}
         for op in insn.ops:
+            if op.type in mem_types and _dtype_width(op) == 8:
+                f.byte_mem_ops += 1
+                if op.type in (ida_ua.o_phrase, ida_ua.o_displ):
+                    f.byte_array_indexing = True
             if op.type == ida_ua.o_imm:
-                f.constants.add(op.value & 0xFFFFFFFFFFFFFFFF)
+                f.add_constant(op.value, _dtype_width(op))
 
         for dref in idautils.DataRefsFrom(ea):
             for name in _table_names_at(dref):
                 if name not in f.table_refs:
                     f.table_refs.append(name)
+            for width, value in _family_constants_at(dref):
+                f.add_constant(value, width)
 
         for cref in idautils.CodeRefsFrom(ea, 0):
             if start <= cref < ea:
@@ -202,11 +246,18 @@ def _extract_hexrays(func, f: structure.FunctionFeatures) -> None:
             elif op == hx.cot_num:
                 v = _num_val(e, hx)
                 if v is not None:
-                    f.constants.add(v & 0xFFFFFFFFFFFFFFFF)
+                    try:
+                        width = e.type.get_size() * 8 if e.type else 0
+                    except Exception:
+                        width = 0
+                    if width not in (8, 16, 32, 64):
+                        width = 64 if v > 0xFFFFFFFF else 32
+                    f.add_constant(v, width)
             elif op == hx.cot_idx:
                 try:
                     if e.type and e.type.get_size() == 1:
                         f.byte_array_indexing = True
+                        f.byte_mem_ops += 1
                 except Exception:
                     pass
 
@@ -245,11 +296,27 @@ def format_report(f: structure.FunctionFeatures,
     if arx:
         lines += ["", arx]
 
-    # Enrich notable constants through the phase-1 engine.
+    corroborated = []
+    for width in (32, 64):
+        corroborated.extend(
+            families.match_values(f.constants_for_width(width), width=width))
+    corroborated.sort(key=lambda m: (-m.score, m.name))
+    covered = set()
+    if corroborated:
+        lines += ["", "Corroborated constant families:"]
+        for match in corroborated[:8]:
+            covered.update(match.matched)
+            lines.append(f"  [{match.bucket}] {match.name}  score {match.score:.2f}")
+            lines.append(f"        - {match.evidence}; {match.source}")
+
+    # Enrich notable standalone constants through the phase-1 engine.
     enriched = []
     for c in sorted(f.constants):
-        if c < 0x100:
+        if c < 0x100 or c in covered:
             continue
+        if (f.constants_by_width and c <= 0xFFFFFFFF
+                and c not in f.constants_for_width(32)):
+            continue  # suppressed high/low half of a recognized qword
         for w in (32, 64):
             if c > (1 << w) - 1:
                 continue
