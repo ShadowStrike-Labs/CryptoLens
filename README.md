@@ -154,10 +154,15 @@ a typed data item.
 
 ## API-name hashes
 
-CryptoLens implements ten common API-name hash schemes over a list of 160
-Windows API and DLL names. Function features narrow the candidate scheme before
-values are resolved. When a consistent mapping is found, the plugin can create
-or extend the `CryptoLens_apihash` enum, apply it to operands, and add comments.
+CryptoLens implements 21 common 32- and 64-bit API-name hash schemes over a
+list of 160 Windows API and DLL names. Scheme detection examines the selected
+function and its direct internal callees, which covers wrappers that compare a
+hash produced by a separate helper. A 32-bit scheme requires structural support
+or two resolved values; a single exact 64-bit match is accepted because its
+collision probability against the built-in name set is substantially lower.
+When a consistent mapping is found, the plugin can create or extend the
+`CryptoLens_apihash` enum, apply it to operands, and add comments. For example,
+`0xB1F0FE0EF080D006` resolves to `bkdr131_64("kernel32.dll")`.
 
 ## Debugger memory scan
 
@@ -235,7 +240,7 @@ Run the full test suite when pytest is installed:
 python -m pytest -q
 ```
 
-The current suite contains 47 tests covering formula derivation, catalog
+The current suite contains 59 tests covering formula derivation, catalog
 invariants, family matching, false-positive regressions, structural classifiers,
 API hashes, memory recovery, fingerprints, and IDA adapter data models.
 

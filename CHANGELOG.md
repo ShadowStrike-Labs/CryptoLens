@@ -11,6 +11,8 @@
   co-occurrence matching, including code islands without IDA functions.
 - BLAKE2 sigma, AES Rcon, CRC-32K/Q, RC4 identity and Base58 table signatures.
 - ASN.1 DER OID fingerprints for RSA, EC curves, Ed25519/X25519, SHA and AES.
+- 64-bit API-name hash schemes, including base-131/BKDR, FNV, djb2, sdbm, and
+  rotate-add variants; wrapper analysis also checks direct hash-helper callees.
 - 23 catalog and precision tests in `test_catalog_precision.py`.
 - Catalog provenance in `SOURCES.md`.
 
