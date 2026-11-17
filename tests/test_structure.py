@@ -50,7 +50,8 @@ def test_sha256_right_rotations():
 
 
 def test_rc4_no_rotations():
-    f = _feat(mod256=3, byte_array_indexing=True, swaps=2, constants={256})
+    f = _feat(mod256=3, byte_array_indexing=True, byte_mem_ops=6,
+              swaps=2, loops=1, constants={256})
     top = _top(f)
     assert top and top.algo == "RC4"
 
@@ -64,7 +65,7 @@ def test_tea_delta_and_shifts():
 
 def test_crc_polynomial():
     f = _feat(shifts=Counter({(32, "R", 1): 1}), op_counts=Counter(xor=3),
-              constants={0xEDB88320})
+              loops=1, conditional_branches=1, constants={0xEDB88320})
     top = _top(f)
     assert top and top.algo == "CRC"
 

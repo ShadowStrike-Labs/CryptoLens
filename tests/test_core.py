@@ -30,7 +30,9 @@ def test_crc_relations():
 
 def test_engine_exact():
     top = engine.explain(0x9E3779B9, 32)[0]
-    assert top.kind == "named" and "TEA" in top.summary
+    assert top.kind == "named"
+    assert "shared constant" in top.summary
+    assert any("TEA" in use for use in top.algorithms)
 
 
 def test_engine_transform():

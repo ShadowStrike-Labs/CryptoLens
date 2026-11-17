@@ -12,17 +12,19 @@ has no IDA dependency and runs as a standalone CLI.
 
 ## What it detects
 
-- **Known constants** from the major algorithms: TEA/XTEA/XXTEA, RC5/RC6,
-  Serpent, MD5, SHA-1, SHA-2 (IV + round constants), Blowfish (pi digits),
-  ChaCha20/Salsa20 sigma words, AES T-tables, FNV-1/1a, xxHash, CRC-16/32/32C/64,
-  SM4, Mersenne Twister and common LCG PRNGs, Tiger, Adler-32.
-- **Variants** of those constants: negated, bitwise-NOT, byte-swapped,
-  bit-reversed, rotated, rounded to odd/prime, multiplied, or differing by a few
-  bits. This is how it catches author/packer constants that are "golden-ratio-like"
-  without being the exact value.
-- **Known tables**: AES S-box / inverse S-box (computed, not hard-coded),
-  CRC-32 and CRC-32C tables, Base64/Base32 alphabets, and *custom* Base64
-  alphabets (64 distinct printable bytes in a row).
+- **Corroborated constant families**: complete SHA-224/256 and SHA-384/512
+  round tables, every SHA-2 IV variant, MD5, SHA-1, BLAKE2s/b, Keccak/SHA-3,
+  SipHash, MurmurHash2/3, SM3, RIPEMD-160, Camellia, SM4, Blowfish, xxHash,
+  SplitMix64, CityHash, FNV, RC5/6, ChaCha/Salsa, AES, CRC, Tiger and PRNGs.
+  Ordered tables and local co-occurrence are promoted; isolated shared values
+  are explicitly reported as ambiguous.
+- **Conservative variants**: documented negation/rounding/multiplication,
+  byte order, CRC reflection, and tightly-scoped golden-ratio near-neighbours.
+  Generic rotate/NOT/nearest-prime cross-products are deliberately rejected to
+  keep false positives low.
+- **Known tables**: AES S-box / inverse S-box / Rcon, four CRC table families,
+  BLAKE2 sigma, RC4 identity state, Base64/Base32/Base58 alphabets, and a
+  shape-checked *custom* Base64 heuristic.
 - **Hardware crypto instructions**: AES-NI, SHA-NI, PCLMULQDQ, SSE4.2 CRC32,
   RDRAND/RDSEED (including VEX-prefixed forms).
 - **API-name hashes** (shellcode/loader style): resolves a value back to names
@@ -35,21 +37,28 @@ Every base constant is produced from a recipe in `cryptolens/hpmath.py`
 `floor(|sin i| * 2^32)`, ...), so the engine knows *why* a number has its value.
 Given any integer it:
 
-1. applies cheap, invertible transforms (negate / NOT / byte-swap / bit-reverse
-   / rotate / 64->32 halves),
-2. looks each result up in the generated anchor table and the algorithm
-   database, and
-3. if nothing matches exactly, runs a fuzzy pass against canonical anchors and
-   reports near misses as "variant of X" with a confidence score.
+1. applies only transforms with a real algorithmic interpretation (byte order,
+   documented golden-ratio negation, and CRC reflection),
+2. looks up the value in the generated anchor and curated family catalogues,
+   reporting shared values as shared rather than arbitrarily choosing the first
+   algorithm, and
+3. if nothing matches exactly, offers a conservative resemblance hint. The
+   requested golden-ratio variant detector remains, while generic one-bit
+   neighbours are low-confidence manual-lookup hints.
+
+Automatic scans use a separate rule: several related constants must co-occur in
+a function/4-KiB window, or an ordered table run must be found. This works even
+when function boundaries are broken and prevents one common constant from
+becoming a confident algorithm claim.
 
 Example (`python -m cryptolens explain 0x9E3779F9`):
 
 ```
 0x9E3779F9  as 32-bit
-  [medium] variant of TEA/XTEA/XXTEA
-      origin : floor(2^32 / phi)  (golden-ratio reciprocal 1/phi)
-      detail : differs in 1 bit(s) vs 0x9E3779B9
-      usedby : TEA/XTEA/XXTEA - delta; RC5/RC6 - magic Q; Serpent; boost::hash_combine
+  [medium] variant of golden-ratio reciprocal (1/phi)
+      origin : floor(2^32 / phi)
+      detail : differs in 1 bit vs 0x9E3779B9
+      candidates: TEA/XTEA/XXTEA; RC5/RC6; Serpent; hash mixing
 ```
 
 Exact matches read their algorithm attribution directly; `0x61C88647` is
@@ -120,13 +129,15 @@ The decisive feature is the **set of rotation amounts**. Right-rotations are
 normalised to their left-equivalent, so detection is robust to how the
 compiler/decompiler expressed them:
 
-- ChaCha20 `16/12/8/7`, Salsa20 `7/9/13/18`
+- ChaCha20 `16/12/8/7`, Salsa20 `7/9/13/18`, BLAKE2s right
+  `16/12/8/7`, and BLAKE2b right `32/24/16/63`
 - SHA-256 Sigma rotations `2/13/22` and `6/11/25` (+ message-schedule shifts
-  `>>3`, `>>10`)
-- SHA-1 `1/5/30`, MD5's 16-entry per-round table
-- TEA/XTEA golden-ratio delta with `<<4` / `>>5`
-- RC4 by its 256-entry byte state with `&0xFF` indexing and swaps (no rotations)
-- CRC by its shift-and-XOR loop or table plus the polynomial
+  `>>3`, `>>10`), SHA-512, SHA-1 `1/5/30`, MD5 and SM3
+- Keccak/SHA-3, SipHash, MurmurHash2/3, RIPEMD-160, xxHash and SplitMix64
+- Camellia/SM4 by corroborated key-schedule families
+- TEA/XTEA golden-ratio delta with direction-checked `<<4` / `>>5`
+- RC4 by a looped 256-entry byte state with modular indexing and swap activity
+- CRC by a loop+branch shift/XOR structure or a validated CRC table
 - AES by AES-NI instructions or S-box/T-table references
 
 Each match comes with a score, the evidence behind it, the function's rotation
@@ -171,7 +182,8 @@ correct and fast.
 - crypto-library strings (OpenSSL, mbedTLS/PolarSSL, Crypto++, libsodium, Windows
   CNG/BCrypt), searched in both ASCII and UTF-16LE,
 - embedded key material (PEM private/public keys, X.509 certificates, OpenSSH
-  keys),
+  keys) and exact ASN.1 DER OIDs for RSA, EC/P-256/secp256k1, Ed25519, X25519,
+  SHA and AES modes,
 - CryptoAPI `CALG_*` algorithm ids used as instruction immediates, and
 - high-entropy regions (>=7.2 bits/byte sustained) that mark encrypted,
   compressed or packed blobs.
@@ -207,10 +219,13 @@ The **CryptoLens** menu provides:
   colors at each finding.
 - **Export findings (JSON/HTML)** - saves the last scan.
 
-Scan strategy: bulk *data* is matched against exact values at aligned 32/64-bit
-offsets (fast, essentially no false positives). The expensive variant/fuzzy
-analysis is reserved for *instruction immediates*, which is exactly where
-golden-ratio-like deltas and custom magic numbers appear in code.
+Scan strategy: bulk data and decoded immediates are correlated as **families**
+inside functions or overlapping 4-KiB windows; ordered tables are detected even
+at unaligned offsets. Strong standalone signatures remain available, but
+shared/family members need corroboration. The window fallback also covers code
+islands where IDA cannot recover function boundaries. Fuzzy resemblance is not
+used for bulk data and only the constrained golden-ratio variant rule reaches a
+normal automatic scan.
 
 ## Project layout
 
@@ -218,9 +233,11 @@ golden-ratio-like deltas and custom magic numbers appear in code.
 cryptolens/              core analysis library (no IDA imports, unit-tested)
   hpmath.py              high-precision constants from formulas
   util.py                bit / number-theory helpers
-  constants.py           base-constant registry + anchor table
-  signatures.py          algorithm attribution database
-  engine.py              transforms, matching, fuzzy variant detection, scoring
+  constants.py           mathematical anchor registry (documented derivations only)
+  families.py            curated multi-constant families and metadata
+  familyscan.py          ordered-sequence + local co-occurrence scanner
+  signatures.py          individual-value lookup catalogue and scan strengths
+  engine.py              semantic transforms, exact lookup, conservative variants
   structure.py           function structural classifier + hash-scheme fingerprints
   memfind.py             AES key-schedule / RC4 / ChaCha recovery from memory
   fingerprints.py        crypto-library / key-material / CALG fingerprints
@@ -242,7 +259,8 @@ cryptolens_ida/          IDA integration (thin I/O layer)
   lookup.py              simplecustviewer_t lookup panel
   plugin.py              actions, menu, hotkeys, export
 cryptolens_plugin.py     IDA plugin entry point (PLUGIN_ENTRY)
-tests/                   pytest-discoverable tests (core + structure + phase2)
+tests/                   47 core, precision, structure and phase-2 tests
+SOURCES.md               standards/reference provenance for the catalogue
 ```
 
 The split is deliberate: all detection logic lives in the testable core, and
@@ -251,12 +269,15 @@ engine can be verified without launching IDA.
 
 ## Extending
 
-- **Add an algorithm constant**: append a row to `_RAW` in
-  `cryptolens/signatures.py` as `(value, width, algorithm, role, note)`. It is
-  automatically matched through all transforms.
-- **Add a base constant / recipe**: add a generator in
-  `_canon_generators()` in `cryptolens/constants.py`; variant detection follows
-  for free.
+- **Add a constant family**: add a `FamilySpec` in
+  `cryptolens/families.py`; individual lookup and corroborated scans then share
+  one source of truth.
+- **Add a standalone algorithm constant**: append a row to `_RAW` in
+  `cryptolens/signatures.py`. Use this only when one value is meaningful on its
+  own; family members belong in `families.py`.
+- **Add a base mathematical recipe**: add a generator in
+  `_canon_generators()` in `cryptolens/constants.py`; automatic variant
+  promotion must still be explicitly justified.
 - **Add an API-hash scheme**: add a function and a `Scheme(...)` entry in
   `cryptolens/apihash.py`.
 - **Add a table**: add a `TableSig` in `cryptolens/tables.py`.
