@@ -1,8 +1,7 @@
 """Define constant families used for corroborated attribution.
 
 Automatic scans require several members of a family or an ordered table run.
-Individual members remain available to value lookup. Catalog references are
-listed in ``SOURCES.md``.
+Individual members remain available to value lookup.
 """
 from __future__ import annotations
 

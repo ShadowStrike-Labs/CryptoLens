@@ -72,8 +72,7 @@ variants, and several PRNG families.
 Mathematical constants are derived from their formulas where possible. Examples
 include SHA-2 square-root and cube-root values, MD5's sine table, Blowfish's pi
 words, and golden-ratio constants. Fixed values from standards or reference
-implementations are stored as named families. Selected catalog references are
-listed in [SOURCES.md](SOURCES.md).
+implementations are stored as named families.
 
 ### Attribution rules
 
@@ -218,7 +217,6 @@ cryptolens_ida/          IDA readers, actions, views, annotations, and export
 cryptolens_plugin.py     IDA entry point
 ida-plugin.json          IDA plugin manifest
 tests/                   core and adapter regression tests
-SOURCES.md               catalog references
 CHANGELOG.md             release history
 ```
 

@@ -19,3 +19,6 @@ Thumbs.db
 # Local scratch / debugging
 _scope_probe/
 *.log
+
+# Local documentation
+SOURCES.md
