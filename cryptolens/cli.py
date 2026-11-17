@@ -41,12 +41,16 @@ def _cmd_apihash(args: argparse.Namespace) -> int:
             return 0
         for h in hits:
             v = f" ({h.variant})" if h.variant else ""
-            print(f"0x{h.value:08X} = {h.scheme}(\"{h.name}\"{v})")
+            digits = h.width // 4
+            print(f"0x{h.value:0{digits}X} = {h.scheme}(\"{h.name}\"{v})")
         return 0
     name = args.name
     print(f"hashes of {name!r}:")
-    for scheme in apihash.list_schemes():
-        print(f"  {scheme:12s} 0x{apihash.hash_name(name, scheme):08X}")
+    schemes = {s.name: s for s in apihash.SCHEMES}
+    width = max(len(s) for s in schemes)
+    for scheme_name, scheme in schemes.items():
+        value = apihash.hash_name(name, scheme_name)
+        print(f"  {scheme_name:{width}s} 0x{value:0{scheme.width // 4}X}")
     return 0
 
 

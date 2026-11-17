@@ -8,8 +8,7 @@ IDA version rejects a mutation call.
 from __future__ import annotations
 
 import re
-from collections import Counter
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Tuple
 
 from cryptolens import apihash, structure
 
@@ -27,21 +26,139 @@ def _sanitize(name: str) -> str:
     return s or "api"
 
 
-def _collect_imms(func) -> Dict[int, List[Tuple[int, int]]]:
-    out: Dict[int, List[Tuple[int, int]]] = {}
+def _add_member(members: Dict[str, Tuple[int, int]],
+                hit: apihash.ApiHashHit) -> None:
+    name = f"{_sanitize(hit.name)}__{_sanitize(hit.scheme)}"
+    if hit.variant:
+        name += f"__{_sanitize(hit.variant)}"
+    entry = (hit.value, hit.width)
+    suffix = 2
+    candidate = name
+    while candidate in members and members[candidate] != entry:
+        candidate = f"{name}_{suffix}"
+        suffix += 1
+    members[candidate] = entry
+
+
+def _operand_width(op) -> int:
+    mapping = {
+        getattr(ida_ua, "dt_byte", 0): 8,
+        getattr(ida_ua, "dt_word", 1): 16,
+        getattr(ida_ua, "dt_dword", 2): 32,
+        getattr(ida_ua, "dt_qword", 7): 64,
+    }
+    return mapping.get(op.dtype, 32)
+
+
+def _collect_imms(func) -> Dict[Tuple[int, int], List[Tuple[int, int]]]:
+    out: Dict[Tuple[int, int], List[Tuple[int, int]]] = {}
     for ea in idautils.FuncItems(func.start_ea):
         insn = ida_ua.insn_t()
         if idaapi.decode_insn(insn, ea) <= 0:
             continue
         for i, op in enumerate(insn.ops):
             if op.type == ida_ua.o_imm:
-                out.setdefault(op.value & 0xFFFFFFFFFFFFFFFF, []).append((ea, i))
+                width = _operand_width(op)
+                value = op.value & ((1 << width) - 1)
+                out.setdefault((value, width), []).append((ea, i))
     return out
 
 
-def _make_enum(members: Dict[str, int]) -> Optional[int]:
-    """Create/extend the CryptoLens enum. Returns enum id or None."""
-    eid = None
+def _feature_values(feats):
+    if feats is None:
+        return set()
+    if not feats.constants_by_width:
+        return set(feats.constants)
+    values = set()
+    for width in (32, 64):
+        values.update((value, width)
+                      for value in feats.constants_for_width(width))
+    return values
+
+
+def _call_result_callees(func, lookahead: int = 8, limit: int = 16):
+    """Return direct callees whose results are compared with nearby constants."""
+    items = list(idautils.FuncItems(func.start_ea))
+    out = []
+    seen = set()
+
+    def has_constant(ea: int) -> bool:
+        insn = ida_ua.insn_t()
+        if idaapi.decode_insn(insn, ea) <= 0:
+            return False
+        return any(op.type == ida_ua.o_imm and op.value >= 0x10000
+                   for op in insn.ops)
+
+    for index, ea in enumerate(items):
+        mnem = (ida_ua.print_insn_mnem(ea) or "").lower()
+        if not mnem.startswith("call"):
+            continue
+        callees = []
+        for target in idautils.CodeRefsFrom(ea, 0):
+            callee = ida_funcs.get_func(target)
+            if callee is not None and callee.start_ea != func.start_ea:
+                callees.append(callee)
+        if not callees:
+            continue
+
+        nearby_constant = any(
+            has_constant(prev_ea) for prev_ea in items[max(0, index - 4):index])
+        compared = False
+        for next_ea in items[index + 1:index + 1 + lookahead]:
+            next_mnem = (ida_ua.print_insn_mnem(next_ea) or "").lower()
+            if next_mnem.startswith("call") or next_mnem.startswith("ret"):
+                break
+            nearby_constant = nearby_constant or has_constant(next_ea)
+            if next_mnem in ("cmp", "test") and nearby_constant:
+                compared = True
+                break
+        if not compared:
+            continue
+        for callee in callees:
+            if callee.start_ea in seen:
+                continue
+            seen.add(callee.start_ea)
+            out.append(callee)
+            if len(out) >= limit:
+                return out
+    return out
+
+
+def _features(func_ea: int, cache=None):
+    if cache is not None and func_ea in cache:
+        return cache[func_ea]
+    result = funcscan.extract_features(func_ea)
+    if cache is not None:
+        cache[func_ea] = result
+    return result
+
+
+def _schemes_with_callees(func, cache=None):
+    """Detect schemes in a wrapper and its direct internal hash helpers."""
+    schemes = []
+    sources = []
+    candidates = [func] + _call_result_callees(func)
+    for candidate in candidates:
+        # Hash helpers are normally compact. Avoid decompiling large dispatch or
+        # initialization callees during a resolver scan.
+        if candidate.start_ea != func.start_ea and candidate.end_ea - candidate.start_ea > 0x2000:
+            continue
+        feats = _features(candidate.start_ea, cache)
+        if feats is None:
+            continue
+        found = structure.detect_hash_schemes(feats)
+        if not found:
+            continue
+        name = ida_funcs.get_func_name(candidate.start_ea) or f"sub_{candidate.start_ea:X}"
+        for scheme, evidence in found:
+            if scheme not in schemes:
+                schemes.append(scheme)
+                sources.append(f"{scheme} in {name}: {evidence}")
+    return schemes, sources
+
+
+def _make_enum(members: Dict[str, Tuple[int, int]]):
+    """Return ``(enum_id, accepted_values)`` for requested members."""
     try:
         eid = idc.get_enum(_ENUM_NAME)
     except Exception:
@@ -51,22 +168,56 @@ def _make_enum(members: Dict[str, int]) -> Optional[int]:
         try:
             eid = idc.add_enum(bad, _ENUM_NAME, 0)
         except Exception:
-            return None
+            return None, set()
     if eid in (None, bad, -1):
-        return None
-    for mname, val in members.items():
+        return None, set()
+
+    needs_wide = any(width == 64 for _value, width in members.values())
+    wide_ready = not needs_wide
+    if needs_wide:
         try:
-            idc.add_enum_member(eid, mname, val & 0xFFFFFFFF, bad)
+            wide_ready = idc.get_enum_width(eid) == 8
         except Exception:
-            pass
-    return eid
+            wide_ready = False
+        if not wide_ready:
+            try:
+                width_result = idc.set_enum_width(eid, 8)
+                wide_ready = bool(width_result)
+            except Exception:
+                wide_ready = False
+            try:
+                wide_ready = wide_ready or idc.get_enum_width(eid) == 8
+            except Exception:
+                pass
+
+    accepted = set()
+    for member_name, (value, width) in members.items():
+        if width == 64 and not wide_ready:
+            continue
+        try:
+            existing = idc.get_enum_member(eid, value, 0, bad)
+        except Exception:
+            existing = bad
+        if existing not in (None, bad, -1):
+            accepted.add((value, width))
+            continue
+        try:
+            result = idc.add_enum_member(eid, member_name, value, bad)
+        except Exception:
+            continue
+        success = (result is True
+                   or (isinstance(result, int)
+                       and not isinstance(result, bool) and result == 0))
+        if success:
+            accepted.add((value, width))
+    return eid, accepted
 
 
-def _apply_operand(ea: int, opn: int, eid: int) -> None:
+def _apply_operand(ea: int, opn: int, eid: int) -> bool:
     try:
-        idc.op_enum(ea, opn, eid, 0)
+        return bool(idc.op_enum(ea, opn, eid, 0))
     except Exception:
-        pass
+        return False
 
 
 def _comment(ea: int, text: str) -> None:
@@ -81,15 +232,25 @@ def _comment(ea: int, text: str) -> None:
 
 
 def _resolve_values(values, schemes):
-    """When no scheme is known, retain schemes supported by two or more hits."""
+    """Resolve with structural schemes or conservative collision thresholds."""
     hits = apihash.resolve(values, schemes if schemes else None)
-    if not schemes and hits:
-        votes = Counter(h.scheme for h in hits)
-        inferred = [s for s, c in votes.items() if c >= 2]
-        if inferred:
-            hits = [h for h in hits if h.scheme in inferred]
-            return hits, inferred
-    return hits, schemes
+    if schemes:
+        return hits, schemes
+    if not hits:
+        return [], []
+
+    support = {}
+    for hit in hits:
+        support.setdefault(hit.scheme, set()).add(hit.value)
+    widths = {scheme.name: scheme.width for scheme in apihash.SCHEMES}
+    inferred = [
+        scheme for scheme, matched_values in support.items()
+        if len(matched_values) >= 2
+        or (widths.get(scheme) == 64 and len(matched_values) >= 1)
+    ]
+    if not inferred:
+        return [], []
+    return [h for h in hits if h.scheme in inferred], inferred
 
 
 def resolve_in_function(func_ea: int, create_enum: bool = True,
@@ -99,10 +260,12 @@ def resolve_in_function(func_ea: int, create_enum: bool = True,
     if func is None:
         return "cursor is not inside a function", []
 
-    feats = funcscan.extract_features(func_ea)
-    schemes = [s for s, _ in structure.detect_hash_schemes(feats)]
+    cache = {}
+    feats = _features(func_ea, cache)
+    schemes, scheme_sources = _schemes_with_callees(func, cache)
     imm_addrs = _collect_imms(func)
-    values = set(imm_addrs) | set(feats.constants)
+    values = set(imm_addrs)
+    values.update(_feature_values(feats))
 
     hits, schemes = _resolve_values(values, schemes)
     uniq = {}
@@ -111,36 +274,44 @@ def resolve_in_function(func_ea: int, create_enum: bool = True,
     hits = list(uniq.values())
 
     fname = ida_funcs.get_func_name(func.start_ea) or f"sub_{func.start_ea:X}"
-    lines = [f"CryptoLens - API-hash resolution", f"  {fname} @ 0x{func.start_ea:X}"]
-    lines.append(f"  scheme(s): {', '.join(schemes) if schemes else 'inferred/none'}")
+    lines = ["CryptoLens - API-hash resolution", f"  {fname} @ 0x{func.start_ea:X}"]
+    lines.append(f"  schemes: {', '.join(schemes) if schemes else 'none'}")
+    for source in scheme_sources:
+        lines.append(f"    {source}")
     if not hits:
-        lines.append("  no hashed API names resolved.")
+        lines.append("  no hashed API names resolved")
+        lines.append("  note: indirect or custom hash helpers may require "
+                     "analysis from the helper function")
         return "\n".join(lines), []
 
     members = {}
     resolved_values = set()
     for h in hits:
-        members[_sanitize(h.name)] = h.value
-        resolved_values.add(h.value & 0xFFFFFFFF)
+        _add_member(members, h)
+        resolved_values.add((h.value, h.width))
 
-    eid = _make_enum(members) if create_enum else None
-    applied = 0
-    for value, addrs in imm_addrs.items():
-        if (value & 0xFFFFFFFF) not in resolved_values:
+    eid, enum_values = (_make_enum(members) if create_enum
+                        else (None, set()))
+    relabeled = 0
+    for (value, width), addrs in imm_addrs.items():
+        if (value, width) not in resolved_values:
             continue
-        names = sorted({h.name for h in hits if h.value == (value & 0xFFFFFFFF)})
+        names = sorted({h.name for h in hits
+                        if h.value == value and h.width == width})
         for ea, opn in addrs:
-            if eid is not None and apply_operands:
-                _apply_operand(ea, opn, eid)
+            if (eid is not None and apply_operands
+                    and (value, width) in enum_values
+                    and _apply_operand(ea, opn, eid)):
+                relabeled += 1
             if do_comment:
                 _comment(ea, "CryptoLens: " + " / ".join(names))
-            applied += 1
 
-    lines.append(f"  names resolved: {len(hits)}; operands relabeled: {applied}"
-                 + (f"; enum '{_ENUM_NAME}'" if eid is not None else ""))
+    lines.append(f"  names resolved: {len(hits)}; operands relabeled: {relabeled}"
+                 + (f"; enum '{_ENUM_NAME}'" if enum_values else ""))
     for h in sorted(hits, key=lambda x: x.name):
         v = f" ({h.variant})" if h.variant else ""
-        lines.append(f"    0x{h.value:08X} = {h.scheme}(\"{h.name}\"{v})")
+        digits = h.width // 4
+        lines.append(f"    0x{h.value:0{digits}X} = {h.scheme}(\"{h.name}\"{v})")
     return "\n".join(lines), hits
 
 
@@ -151,14 +322,16 @@ def resolve_in_binary(create_enum: bool = True, apply_operands: bool = True):
     all_members: Dict[str, int] = {}
     per_func = []
     total_hits = 0
+    feature_cache = {}
     for fea in idautils.Functions():
         func = ida_funcs.get_func(fea)
         if func is None:
             continue
-        feats = funcscan.extract_features(fea)
-        schemes = [s for s, _ in structure.detect_hash_schemes(feats)]
+        feats = _features(fea, feature_cache)
+        schemes, _scheme_sources = _schemes_with_callees(func, feature_cache)
         imm_addrs = _collect_imms(func)
-        values = set(imm_addrs) | set(feats.constants)
+        values = set(imm_addrs)
+        values.update(_feature_values(feats))
         hits, schemes = _resolve_values(values, schemes)
         if not hits:
             continue
@@ -166,21 +339,24 @@ def resolve_in_binary(create_enum: bool = True, apply_operands: bool = True):
         hits = list(uniq.values())
         total_hits += len(hits)
         for h in hits:
-            all_members[_sanitize(h.name)] = h.value
+            _add_member(all_members, h)
         per_func.append((func.start_ea,
                          ida_funcs.get_func_name(func.start_ea) or f"sub_{func.start_ea:X}",
                          hits, imm_addrs))
 
-    eid = _make_enum(all_members) if (create_enum and all_members) else None
+    eid, enum_values = (_make_enum(all_members)
+                        if (create_enum and all_members) else (None, set()))
     findings = []
     for fea, fname, hits, imm_addrs in per_func:
-        resolved_values = {h.value & 0xFFFFFFFF for h in hits}
-        for value, addrs in imm_addrs.items():
-            if (value & 0xFFFFFFFF) not in resolved_values:
+        resolved_values = {(h.value, h.width) for h in hits}
+        for (value, width), addrs in imm_addrs.items():
+            if (value, width) not in resolved_values:
                 continue
-            names = sorted({h.name for h in hits if h.value == (value & 0xFFFFFFFF)})
+            names = sorted({h.name for h in hits
+                            if h.value == value and h.width == width})
             for ea, opn in addrs:
-                if eid is not None and apply_operands:
+                if (eid is not None and apply_operands
+                        and (value, width) in enum_values):
                     _apply_operand(ea, opn, eid)
                 _comment(ea, "CryptoLens: " + " / ".join(names))
         top = sorted(hits, key=lambda x: x.name)

@@ -603,36 +603,53 @@ def detect_hash_schemes(f: FunctionFeatures) -> List[Tuple[str, str]]:
     """
     out: List[Tuple[str, str]] = []
     R = f.as_right(32)
+    R64 = f.as_right(64)
     Lsh = f.shift_set(32, "L")
+    Lsh64 = f.shift_set(64, "L")
     oc = f.op_counts
 
-    def rot(amount: int) -> bool:
-        return amount in R
+    def add_rotate_schemes(amount: int, name32: str, name64: str) -> None:
+        if amount in R:
+            out.append((name32, f"rotate-right-{amount} plus add recurrence"))
+        if amount in R64:
+            out.append((name64, f"64-bit rotate-right-{amount} plus add recurrence"))
 
     # A rotate alone is common bit-twiddling; require the add recurrence used
     # by these API-name hashes.
     if oc.get("add", 0) >= 1:
-        if rot(13):
-            out.append(("ror13_add", "rotate-right-13 plus add recurrence"))
-        if rot(7):
-            out.append(("ror7_add", "rotate-right-7 plus add recurrence"))
-        if rot(11):
-            out.append(("ror11_add", "rotate-right-11 plus add recurrence"))
-        if rot(9):
-            out.append(("ror9_add", "rotate-right-9 plus add recurrence"))
+        add_rotate_schemes(13, "ror13_add", "ror13_add64")
+        add_rotate_schemes(7, "ror7_add", "ror7_add64")
+        add_rotate_schemes(11, "ror11_add", "ror11_add64")
+        add_rotate_schemes(9, "ror9_add", "ror9_add64")
     if (f.constants_for_width(32) & {0x01000193, 0x811C9DC5}
             and oc.get("mul", 0) >= 1 and oc.get("xor", 0) >= 1):
         out.append(("fnv1a32", "FNV prime/offset with multiply and xor"))
         out.append(("fnv1_32", "FNV prime/offset with multiply and xor"))
-    if 5381 in f.constants and 5 in Lsh:
-        if oc.get("add", 0) >= 1:
-            out.append(("djb2", "seed 5381 with left-shift-5/add"))
-        if oc.get("xor", 0) >= 1:
-            out.append(("djb2_xor", "seed 5381 with left-shift-5/xor"))
+    if (f.constants_for_width(64) & {0x100000001B3, 0xCBF29CE484222325}
+            and oc.get("mul", 0) >= 1 and oc.get("xor", 0) >= 1):
+        out.append(("fnv1a64", "64-bit FNV prime/offset with multiply and xor"))
+        out.append(("fnv1_64", "64-bit FNV prime/offset with multiply and xor"))
+    if 5381 in f.constants:
+        if 5 in Lsh:
+            if oc.get("add", 0) >= 1:
+                out.append(("djb2", "seed 5381 with left-shift-5/add"))
+            if oc.get("xor", 0) >= 1:
+                out.append(("djb2_xor", "seed 5381 with left-shift-5/xor"))
+        if 5 in Lsh64:
+            if oc.get("add", 0) >= 1:
+                out.append(("djb2_64", "64-bit seed 5381 with left-shift-5/add"))
+            if oc.get("xor", 0) >= 1:
+                out.append(("djb2_xor64", "64-bit seed 5381 with left-shift-5/xor"))
     if oc.get("mul", 0) >= 1 and 33 in f.constants and oc.get("add", 0) >= 1:
         out.append(("djb2", "multiply-by-33 plus add"))
+        out.append(("djb2_64", "64-bit multiply-by-33 plus add"))
     if {6, 16} <= Lsh and oc.get("add", 0) >= 1 and oc.get("sub", 0) >= 1:
         out.append(("sdbm", "left shifts 6/16 with add/sub recurrence"))
+    if {6, 16} <= Lsh64 and oc.get("add", 0) >= 1 and oc.get("sub", 0) >= 1:
+        out.append(("sdbm64", "64-bit left shifts 6/16 with add/sub recurrence"))
+    if 131 in f.constants and oc.get("mul", 0) >= 1 and oc.get("add", 0) >= 1:
+        out.append(("bkdr131_32", "base-131 multiply/add recurrence"))
+        out.append(("bkdr131_64", "64-bit base-131 multiply/add recurrence"))
     if (f.constants_for_width(32) & {0xEDB88320, 0x04C11DB7}
             and oc.get("xor", 0) >= 1 and f.loops >= 1):
         out.append(("crc32", "CRC-32 polynomial in shift/xor loop"))

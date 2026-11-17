@@ -35,9 +35,9 @@ def explain_text(value: int, width: int) -> str:
     for order, s in parse.ascii_of(value, width):
         out.append(f"  ascii ({order}-endian): {s!r}")
 
-    # API-hash interpretation (32-bit)
-    if width <= 32:
-        hits = apihash.identify(value)
+    # API-hash interpretation
+    if width in (32, 64):
+        hits = apihash.identify(value, width)
         for h in hits[:6]:
             v = f" ({h.variant})" if h.variant else ""
             out.append(f"  [high]   API hash: {h.scheme}(\"{h.name}\"{v})")
